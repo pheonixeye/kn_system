@@ -5,6 +5,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/visit.dart';
 import '../../models/vital_signs.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/clinic_provider.dart';
 import '../../widgets/custom_badge.dart';
 import '../../widgets/image_dropzone.dart';
@@ -119,6 +120,14 @@ class _ResidentScreenState extends State<ResidentScreen> {
 
   Future<void> _saveIntake(Visit visit, {bool sendToConsultant = false}) async {
     final provider = context.read<ClinicProvider>();
+    final operatorName = context.read<AuthProvider>().currentUser?.name?.trim();
+    final residentName = (operatorName != null && operatorName.isNotEmpty)
+        ? operatorName
+        : _residentNameController.text.trim();
+    if (residentName.isNotEmpty) {
+      _residentNameController.text = residentName;
+    }
+
     final multipartFiles = _stagedImages
         .map((s) => s.toMultipartFile())
         .toList();
@@ -133,7 +142,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
         vitalSigns: _buildVitalSigns(),
         examinationNotes: _examNotesController.text,
         residentAssessment: _assessmentController.text,
-        residentName: _residentNameController.text,
+        residentName: residentName,
         newImages: multipartFiles.isNotEmpty ? multipartFiles : null,
         sendToConsultant: sendToConsultant,
       );
@@ -209,14 +218,14 @@ class _ResidentScreenState extends State<ResidentScreen> {
                                   color: AppTheme.primaryLight,
                                   borderRadius: BorderRadius.circular(6),
                                 ),
-                                child: const Icon(
+                                child: Icon(
                                   Icons.queue_rounded,
                                   color: AppTheme.primary,
                                   size: 18,
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              const Text(
+                              Text(
                                 'Resident Queue',
                                 style: TextStyle(
                                   fontSize: 15,
@@ -237,7 +246,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                             ),
                             child: Text(
                               '${residentQueue.length} Waiting',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 color: AppTheme.warning,
@@ -253,7 +262,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                       // Queue List
                       Expanded(
                         child: residentQueue.isEmpty
-                            ? const Center(
+                            ? Center(
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -262,7 +271,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                                       size: 40,
                                       color: AppTheme.success,
                                     ),
-                                    SizedBox(height: 8),
+                                    const SizedBox(height: 8),
                                     Text(
                                       'No patients waiting in queue',
                                       style: TextStyle(
@@ -298,7 +307,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                                             ? AppTheme.primaryLight.withValues(
                                                 alpha: 0.5,
                                               )
-                                            : Colors.white,
+                                            : AppTheme.cardBg,
                                         borderRadius: BorderRadius.circular(8),
                                         border: Border.all(
                                           color: isSelected
@@ -311,13 +320,15 @@ class _ResidentScreenState extends State<ResidentScreen> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.spaceBetween,
+                                          Wrap(
+                                            // mainAxisAlignment:
+                                            //     MainAxisAlignment.spaceBetween,
+                                            spacing: 8,
+                                            runSpacing: 8,
                                             children: [
                                               Text(
                                                 '#${visit.queueNumber ?? (index + 1)} ${visit.patient?.name ?? "Patient"}',
-                                                style: const TextStyle(
+                                                style: TextStyle(
                                                   fontWeight: FontWeight.w700,
                                                   fontSize: 13,
                                                   color: AppTheme.secondary,
@@ -331,7 +342,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                                           const SizedBox(height: 4),
                                           Text(
                                             'Age: ${visit.patient?.calculatedAge ?? visit.patient?.dob ?? "-"} • ${visit.patient?.gender ?? "-"}',
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 11,
                                               color: AppTheme.slate500,
                                             ),
@@ -343,7 +354,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                                             const SizedBox(height: 4),
                                             Text(
                                               visit.chiefComplaint!,
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 11,
                                                 color: AppTheme.slate700,
                                                 fontStyle: FontStyle.italic,
@@ -400,7 +411,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
             // Right: Medical History & Intake Workspace
             Expanded(
               child: selectedVisit == null
-                  ? const Card(
+                  ? Card(
                       child: Center(
                         child: Text(
                           'Select a patient from the queue to start intake.',
@@ -421,14 +432,14 @@ class _ResidentScreenState extends State<ResidentScreen> {
                             const SizedBox(height: 20),
 
                             // Section 1: Chief Complaint & HPI
-                            const Row(
+                            Row(
                               children: [
                                 Icon(
                                   Icons.medical_information_outlined,
                                   color: AppTheme.primary,
                                   size: 20,
                                 ),
-                                SizedBox(width: 8),
+                                const SizedBox(width: 8),
                                 Text(
                                   '1. Clinical Presentation & History',
                                   style: TextStyle(
@@ -557,7 +568,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Row(
+                                Row(
                                   children: [
                                     Icon(
                                       Icons.monitor_heart_outlined,
@@ -587,7 +598,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                                     ),
                                     child: Text(
                                       'BMI: ${_calculateBmi()!.toStringAsFixed(1)} kg/m²',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold,
                                         color: AppTheme.primary,
@@ -666,7 +677,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                             const SizedBox(height: 24),
 
                             // Section 3: Physical Examination & Resident Impressions
-                            const Row(
+                            Row(
                               children: [
                                 Icon(
                                   Icons.rate_review_outlined,
@@ -841,8 +852,8 @@ class _ResidentScreenState extends State<ResidentScreen> {
                 backgroundColor: AppTheme.primary,
                 child: Text(
                   '#${visit.queueNumber ?? "1"}',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: AppTheme.onPrimary,
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
                   ),
@@ -856,7 +867,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                     children: [
                       Text(
                         patient?.name ?? 'Unknown Patient',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
                           color: AppTheme.secondary,
@@ -869,10 +880,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
                   const SizedBox(height: 3),
                   Text(
                     'Phone: ${patient?.phone ?? "-"} • DOB: ${patient?.dob ?? "-"} (${patient?.calculatedAge != null ? "${patient!.calculatedAge} yrs" : "-"}) • Gender: ${patient?.gender ?? "-"}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.slate500,
-                    ),
+                    style: TextStyle(fontSize: 12, color: AppTheme.slate500),
                   ),
                 ],
               ),
@@ -880,7 +888,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
           ),
           Text(
             'Visit Date: ${visit.visitDate ?? DateFormat("yyyy-MM-dd").format(DateTime.now())}',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
               color: AppTheme.slate500,
@@ -906,7 +914,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
         children: [
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: AppTheme.slate700,
@@ -919,10 +927,7 @@ class _ResidentScreenState extends State<ResidentScreen> {
             decoration: InputDecoration(
               hintText: hint,
               suffixText: unit,
-              suffixStyle: const TextStyle(
-                fontSize: 10,
-                color: AppTheme.slate400,
-              ),
+              suffixStyle: TextStyle(fontSize: 10, color: AppTheme.slate400),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 10,
                 vertical: 8,

@@ -51,7 +51,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.lightTheme,
-          home: const Scaffold(
+          home: Scaffold(
             body: Column(
               children: [
                 StatCard(

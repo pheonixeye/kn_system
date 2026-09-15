@@ -9,6 +9,7 @@ class Patient extends Equatable {
   final String? gender;
   final String? nationalId;
   final String? notes;
+  final String? addedBy;
   final DateTime? created;
   final DateTime? updated;
 
@@ -20,6 +21,7 @@ class Patient extends Equatable {
     this.gender,
     this.nationalId,
     this.notes,
+    this.addedBy,
     this.created,
     this.updated,
   });
@@ -49,6 +51,7 @@ class Patient extends Equatable {
       gender: record.getStringValue('gender'),
       nationalId: record.getStringValue('national_id'),
       notes: record.getStringValue('notes'),
+      addedBy: record.getStringValue('added_by'),
       created: DateTime.tryParse(record.getStringValue('created')),
       updated: DateTime.tryParse(record.getStringValue('updated')),
     );
@@ -62,6 +65,7 @@ class Patient extends Equatable {
       if (gender != null) 'gender': gender,
       if (nationalId != null) 'national_id': nationalId,
       if (notes != null) 'notes': notes,
+      if (addedBy != null) 'added_by': addedBy,
     };
   }
 
@@ -73,6 +77,7 @@ class Patient extends Equatable {
     String? gender,
     String? nationalId,
     String? notes,
+    String? addedBy,
     DateTime? created,
     DateTime? updated,
   }) {
@@ -84,6 +89,7 @@ class Patient extends Equatable {
       gender: gender ?? this.gender,
       nationalId: nationalId ?? this.nationalId,
       notes: notes ?? this.notes,
+      addedBy: addedBy ?? this.addedBy,
       created: created ?? this.created,
       updated: updated ?? this.updated,
     );
@@ -98,6 +104,7 @@ class Patient extends Equatable {
     gender,
     nationalId,
     notes,
+    addedBy,
     created,
     updated,
   ];

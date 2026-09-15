@@ -4,6 +4,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/services/pdf_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/visit.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/clinic_provider.dart';
 import '../../widgets/custom_badge.dart';
 import '../../widgets/image_viewer_dialog.dart';
@@ -54,6 +55,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     bool markCompleted = false,
   }) async {
     final provider = context.read<ClinicProvider>();
+    final consultantName = _currentOperatorName();
     try {
       await provider.saveConsultantAssessment(
         visit: visit,
@@ -61,7 +63,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
         plan: _planController.text,
         prescription: _prescriptionController.text,
         notes: _notesController.text,
-        consultantName: _consultantNameController.text,
+        consultantName: consultantName,
         markCompleted: markCompleted,
       );
 
@@ -89,6 +91,18 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     }
   }
 
+  String _currentOperatorName() {
+    final operatorName =
+        context.read<AuthProvider>().currentUser?.name?.trim();
+    final name = (operatorName != null && operatorName.isNotEmpty)
+        ? operatorName
+        : _consultantNameController.text.trim();
+    if (name.isNotEmpty) {
+      _consultantNameController.text = name;
+    }
+    return name;
+  }
+
   Future<void> _printReport(Visit visit) async {
     setState(() => _isGeneratingPdf = true);
     try {
@@ -98,7 +112,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
         consultantPlan: _planController.text,
         consultantPrescription: _prescriptionController.text,
         consultantNotes: _notesController.text,
-        consultantName: _consultantNameController.text,
+        consultantName: _currentOperatorName(),
       );
 
       await PdfService.printVisitReport(updatedVisit);
@@ -210,14 +224,14 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                     color: AppTheme.primaryLight,
                                     borderRadius: BorderRadius.circular(6),
                                   ),
-                                  child: const Icon(
+                                  child: Icon(
                                     Icons.dashboard_customize_outlined,
                                     color: AppTheme.primary,
                                     size: 18,
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                const Text(
+                                Text(
                                   'Consultant Queue',
                                   style: TextStyle(
                                     fontSize: 15,
@@ -236,7 +250,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                               child:
                                   (readyVisits.isEmpty &&
                                       completedVisits.isEmpty)
-                                  ? const Center(
+                                  ? Center(
                                       child: Column(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
@@ -245,7 +259,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                             size: 40,
                                             color: AppTheme.slate400,
                                           ),
-                                          SizedBox(height: 8),
+                                          const SizedBox(height: 8),
                                           Text(
                                             'No patients waiting for consultation',
                                             style: TextStyle(
@@ -259,7 +273,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                   : ListView(
                                       children: [
                                         if (readyVisits.isNotEmpty) ...[
-                                          const Padding(
+                                          Padding(
                                             padding: EdgeInsets.symmetric(
                                               vertical: 6,
                                             ),
@@ -283,7 +297,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                         ],
                                         if (completedVisits.isNotEmpty) ...[
                                           const SizedBox(height: 12),
-                                          const Padding(
+                                          Padding(
                                             padding: EdgeInsets.symmetric(
                                               vertical: 6,
                                             ),
@@ -318,7 +332,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                   // Right: Comprehensive Case Dashboard & Clinical Assessment
                   Expanded(
                     child: selectedVisit == null
-                        ? const Card(
+                        ? Card(
                             child: Center(
                               child: Text(
                                 'Select a patient to review clinical history and manage case.',
@@ -388,7 +402,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
           decoration: BoxDecoration(
             color: isSelected
                 ? AppTheme.primaryLight.withValues(alpha: 0.5)
-                : Colors.white,
+                : AppTheme.cardBg,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: isSelected ? AppTheme.primary : AppTheme.slate200,
@@ -398,15 +412,14 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                // mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     '#${visit.queueNumber ?? "1"} ${visit.patient?.name ?? "Patient"}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                   ),
                   CustomBadge.fromStatus(visit.status),
                 ],
@@ -414,14 +427,14 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
               const SizedBox(height: 4),
               Text(
                 'Age: ${visit.patient?.calculatedAge ?? visit.patient?.dob ?? "-"} • Phone: ${visit.patient?.phone ?? "-"}',
-                style: const TextStyle(fontSize: 11, color: AppTheme.slate500),
+                style: TextStyle(fontSize: 11, color: AppTheme.slate500),
               ),
               if (visit.chiefComplaint != null &&
                   visit.chiefComplaint!.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
                   visit.chiefComplaint!,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     color: AppTheme.slate700,
                     fontStyle: FontStyle.italic,
@@ -449,8 +462,8 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
               backgroundColor: AppTheme.primary,
               child: Text(
                 '#${visit.queueNumber ?? "1"}',
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: AppTheme.onPrimary,
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
                 ),
@@ -464,7 +477,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                   children: [
                     Text(
                       patient?.name ?? 'Unknown Patient',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
                         color: AppTheme.secondary,
@@ -477,10 +490,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                 const SizedBox(height: 3),
                 Text(
                   'DOB: ${patient?.dob ?? "-"} (${patient?.calculatedAge != null ? "${patient!.calculatedAge} yrs" : "-"}) • Phone: ${patient?.phone ?? "-"} • Gender: ${patient?.gender ?? "-"}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.slate500,
-                  ),
+                  style: TextStyle(fontSize: 12, color: AppTheme.slate500),
                 ),
               ],
             ),
@@ -491,7 +501,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.secondary,
-                foregroundColor: Colors.white,
+                foregroundColor: AppTheme.onSecondary,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 12,
@@ -502,10 +512,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.print_rounded, size: 18),
               label: const Text('Print / Export PDF'),
@@ -530,14 +537,14 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Row(
+              Row(
                 children: [
                   Icon(
                     Icons.folder_shared_outlined,
                     color: AppTheme.primary,
                     size: 18,
                   ),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Text(
                     'Resident Doctor Intake & Medical History',
                     style: TextStyle(
@@ -550,7 +557,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
               ),
               Text(
                 'Recorded by: ${visit.residentName?.isNotEmpty == true ? "Dr. ${visit.residentName}" : "Resident Doctor"}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w500,
                   color: AppTheme.slate500,
@@ -600,7 +607,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
           width: 220,
           child: Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
               color: AppTheme.slate700,
@@ -631,14 +638,14 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: AppTheme.slate200),
         ),
-        child: const Row(
+        child: Row(
           children: [
             Icon(
               Icons.monitor_heart_outlined,
               color: AppTheme.slate400,
               size: 18,
             ),
-            SizedBox(width: 8),
+            const SizedBox(width: 8),
             Text(
               'No vital signs recorded during resident intake.',
               style: TextStyle(color: AppTheme.slate500, fontSize: 12),
@@ -651,21 +658,21 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardBg,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppTheme.slate200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(
                 Icons.monitor_heart_outlined,
                 color: AppTheme.primary,
                 size: 18,
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
                 'Vital Signs',
                 style: TextStyle(
@@ -703,7 +710,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
             color: AppTheme.slate500,
             fontWeight: FontWeight.w500,
@@ -712,16 +719,13 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
         const SizedBox(height: 2),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w700,
             color: AppTheme.secondary,
           ),
         ),
-        Text(
-          unit,
-          style: const TextStyle(fontSize: 10, color: AppTheme.slate400),
-        ),
+        Text(unit, style: TextStyle(fontSize: 10, color: AppTheme.slate400)),
       ],
     );
   }
@@ -735,14 +739,14 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: AppTheme.slate200),
         ),
-        child: const Row(
+        child: Row(
           children: [
             Icon(
               Icons.image_not_supported_outlined,
               color: AppTheme.slate400,
               size: 18,
             ),
-            SizedBox(width: 8),
+            const SizedBox(width: 8),
             Text(
               'No clinical images or investigation files attached.',
               style: TextStyle(color: AppTheme.slate500, fontSize: 12),
@@ -757,7 +761,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
       children: [
         Row(
           children: [
-            const Icon(
+            Icon(
               Icons.photo_library_outlined,
               color: AppTheme.primary,
               size: 18,
@@ -765,7 +769,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
             const SizedBox(width: 8),
             Text(
               'Attached Investigations & Scans (${visit.images.length})',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
                 color: AppTheme.secondary,
@@ -791,10 +795,10 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: AppTheme.slate200),
-                  color: Colors.white,
+                  color: AppTheme.cardBg,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
+                      color: AppTheme.shadow,
                       blurRadius: 4,
                       offset: const Offset(0, 2),
                     ),
@@ -814,7 +818,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                           fit: BoxFit.cover,
                           errorBuilder: (_, _, _) => Container(
                             color: AppTheme.slate100,
-                            child: const Icon(
+                            child: Icon(
                               Icons.broken_image,
                               color: AppTheme.slate400,
                             ),
@@ -852,21 +856,21 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0FDF4), // soft emerald tint
+        // color: const Color(0xFFF0FDF4), // soft emerald tint
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFBBF7D0)),
+        border: Border.all(color: AppTheme.successLight),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(
                 Icons.assignment_turned_in_outlined,
                 color: AppTheme.success,
                 size: 20,
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
                 'Consultant Diagnosis, Plan & Prescription',
                 style: TextStyle(

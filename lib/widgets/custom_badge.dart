@@ -25,28 +25,28 @@ class CustomBadge extends StatelessWidget {
 
     switch (status) {
       case AppConstants.statusWaitingResident:
-        bg = const Color(0xFFFEF3C7);
-        fg = const Color(0xFFB45309);
+        bg = AppTheme.warningLight;
+        fg = AppTheme.warning;
         ic = Icons.hourglass_top_rounded;
         break;
       case AppConstants.statusWithResident:
-        bg = const Color(0xFFE0E7FF);
-        fg = const Color(0xFF4338CA);
+        bg = AppTheme.indigoLight;
+        fg = AppTheme.indigo;
         ic = Icons.medical_services_outlined;
         break;
       case AppConstants.statusWaitingConsultant:
-        bg = const Color(0xFFE0F2FE);
-        fg = const Color(0xFF0369A1);
+        bg = AppTheme.primaryLight;
+        fg = AppTheme.primary;
         ic = Icons.assignment_late_outlined;
         break;
       case AppConstants.statusWithConsultant:
-        bg = const Color(0xFFF3E8FF);
-        fg = const Color(0xFF7E22CE);
+        bg = AppTheme.purpleLight;
+        fg = AppTheme.purple;
         ic = Icons.person_search_outlined;
         break;
       case AppConstants.statusCompleted:
-        bg = const Color(0xFFD1FAE5);
-        fg = const Color(0xFF047857);
+        bg = AppTheme.successLight;
+        fg = AppTheme.success;
         ic = Icons.check_circle_outline_rounded;
         break;
       default:

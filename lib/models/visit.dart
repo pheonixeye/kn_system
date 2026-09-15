@@ -25,6 +25,7 @@ class Visit extends Equatable {
   final String? consultantPrescription;
   final String? consultantNotes;
   final String? consultantName;
+  final String? addedBy;
   final DateTime? created;
   final DateTime? updated;
 
@@ -49,6 +50,7 @@ class Visit extends Equatable {
     this.consultantPrescription,
     this.consultantNotes,
     this.consultantName,
+    this.addedBy,
     this.created,
     this.updated,
   });
@@ -96,6 +98,7 @@ class Visit extends Equatable {
       consultantPrescription: record.getStringValue('consultant_prescription'),
       consultantNotes: record.getStringValue('consultant_notes'),
       consultantName: record.getStringValue('consultant_name'),
+      addedBy: record.getStringValue('added_by'),
       created: DateTime.tryParse(record.getStringValue('created')),
       updated: DateTime.tryParse(record.getStringValue('updated')),
     );
@@ -125,6 +128,7 @@ class Visit extends Equatable {
         'consultant_prescription': consultantPrescription,
       if (consultantNotes != null) 'consultant_notes': consultantNotes,
       if (consultantName != null) 'consultant_name': consultantName,
+      if (addedBy != null) 'added_by': addedBy,
     };
   }
 
@@ -149,6 +153,7 @@ class Visit extends Equatable {
     String? consultantPrescription,
     String? consultantNotes,
     String? consultantName,
+    String? addedBy,
     DateTime? created,
     DateTime? updated,
   }) {
@@ -175,6 +180,7 @@ class Visit extends Equatable {
           consultantPrescription ?? this.consultantPrescription,
       consultantNotes: consultantNotes ?? this.consultantNotes,
       consultantName: consultantName ?? this.consultantName,
+      addedBy: addedBy ?? this.addedBy,
       created: created ?? this.created,
       updated: updated ?? this.updated,
     );
@@ -202,6 +208,7 @@ class Visit extends Equatable {
     consultantPrescription,
     consultantNotes,
     consultantName,
+    addedBy,
     created,
     updated,
   ];

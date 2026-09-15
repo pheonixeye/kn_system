@@ -2,6 +2,7 @@ import 'package:http/http.dart' as http;
 import 'package:pocketbase/pocketbase.dart';
 import '../constants/app_constants.dart';
 import '../../models/patient.dart';
+import '../../models/user.dart';
 import '../../models/visit.dart';
 
 class PocketBaseService {
@@ -12,6 +13,35 @@ class PocketBaseService {
 
   PocketBaseService._internal() {
     pb = PocketBase(AppConstants.pocketBaseUrl);
+  }
+
+  // Auth API
+  Future<User> login({required String email, required String password}) async {
+    try {
+      final record = await pb
+          .collection(AppConstants.usersCollection)
+          .authWithPassword(email.trim(), password);
+      return User.fromRecord(record.record);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  void logout() {
+    pb.authStore.clear();
+  }
+
+  void restoreAuth(String token, Map<String, dynamic> recordJson) {
+    try {
+      pb.authStore.save(token, RecordModel.fromJson(recordJson));
+    } catch (_) {
+      pb.authStore.save(token, null);
+    }
+  }
+
+  String? get authToken {
+    final token = pb.authStore.token;
+    return token.isEmpty ? null : token;
   }
 
   // Patients API
@@ -60,6 +90,7 @@ class PocketBaseService {
     String? status,
     String? date,
     String? search,
+    String? filter,
   }) async {
     try {
       final filters = <String>[];
@@ -74,6 +105,9 @@ class PocketBaseService {
         filters.add(
           '(patient.name ~ "$q" || patient.phone ~ "$q" || chief_complaint ~ "$q")',
         );
+      }
+      if (filter != null && filter.trim().isNotEmpty) {
+        filters.add(filter);
       }
 
       final filterString = filters.isNotEmpty ? filters.join(' && ') : null;
@@ -142,15 +176,56 @@ class PocketBaseService {
   }
 
   // Real-time Subscriptions
-  void subscribeToVisits(void Function(RecordSubscriptionEvent) onEvent) {
+  bool _visitsSubscribed = false;
+  bool _patientsSubscribed = false;
+
+  bool get visitsSubscribed => _visitsSubscribed;
+  bool get patientsSubscribed => _patientsSubscribed;
+
+  Future<void> subscribeToVisits(
+    void Function(RecordSubscriptionEvent) onEvent,
+  ) async {
+    if (_visitsSubscribed) return;
+    _visitsSubscribed = true;
     try {
-      pb.collection(AppConstants.visitsCollection).subscribe('*', onEvent);
+      // The future completes when the connection drops or the
+      // subscription is unsubscribed, so the flag is cleared here to let
+      // callers detect a disconnect and re-subscribe.
+      await pb
+          .collection(AppConstants.visitsCollection)
+          .subscribe('*', onEvent);
+    } catch (_) {
+    } finally {
+      _visitsSubscribed = false;
+    }
+  }
+
+  Future<void> unsubscribeFromVisits() async {
+    _visitsSubscribed = false;
+    try {
+      await pb.collection(AppConstants.visitsCollection).unsubscribe('*');
     } catch (_) {}
   }
 
-  void unsubscribeFromVisits() {
+  Future<void> subscribeToPatients(
+    void Function(RecordSubscriptionEvent) onEvent,
+  ) async {
+    if (_patientsSubscribed) return;
+    _patientsSubscribed = true;
     try {
-      pb.collection(AppConstants.visitsCollection).unsubscribe('*');
+      await pb
+          .collection(AppConstants.patientsCollection)
+          .subscribe('*', onEvent);
+    } catch (_) {
+    } finally {
+      _patientsSubscribed = false;
+    }
+  }
+
+  Future<void> unsubscribeFromPatients() async {
+    _patientsSubscribed = false;
+    try {
+      await pb.collection(AppConstants.patientsCollection).unsubscribe('*');
     } catch (_) {}
   }
 }

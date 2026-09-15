@@ -26,11 +26,11 @@ class ImageViewerDialog extends StatelessWidget {
       child: Container(
         constraints: const BoxConstraints(maxWidth: 800, maxHeight: 700),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.cardBg,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.25),
+              color: AppTheme.shadow,
               blurRadius: 30,
               offset: const Offset(0, 10),
             ),
@@ -45,7 +45,7 @@ class ImageViewerDialog extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
               child: Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.image_outlined,
                     color: AppTheme.primary,
                     size: 20,
@@ -54,7 +54,7 @@ class ImageViewerDialog extends StatelessWidget {
                   Expanded(
                     child: Text(
                       title ?? 'Clinical Investigation / Image Preview',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                         color: AppTheme.secondary,
@@ -130,7 +130,7 @@ class ImageViewerDialog extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Pinch / Scroll to Zoom • Drag to Pan',
                     style: TextStyle(fontSize: 12, color: AppTheme.slate500),
                   ),

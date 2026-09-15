@@ -101,13 +101,13 @@ class ImageDropzoneState extends State<ImageDropzone> {
           children: [
             Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.attach_file_rounded,
                   size: 18,
                   color: AppTheme.primary,
                 ),
                 const SizedBox(width: 6),
-                const Text(
+                Text(
                   'Clinical Investigations & Images',
                   style: TextStyle(
                     fontSize: 14,
@@ -203,7 +203,7 @@ class ImageDropzoneState extends State<ImageDropzone> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'Supports PNG, JPG, WEBP, Scans, Lab Results & PDFs (up to 50MB each)',
                       style: TextStyle(fontSize: 11, color: AppTheme.slate400),
                     ),
@@ -240,12 +240,12 @@ class ImageDropzoneState extends State<ImageDropzone> {
     return Container(
       width: 140,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardBg,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppTheme.slate200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: AppTheme.shadow,
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -269,7 +269,7 @@ class ImageDropzoneState extends State<ImageDropzone> {
                           fit: BoxFit.cover,
                           errorBuilder: (_, _, _) => Container(
                             color: AppTheme.slate100,
-                            child: const Center(
+                            child: Center(
                               child: Icon(
                                 Icons.insert_drive_file_outlined,
                                 color: AppTheme.slate400,
@@ -281,10 +281,7 @@ class ImageDropzoneState extends State<ImageDropzone> {
                     : Container(
                         height: 95,
                         color: AppTheme.slate100,
-                        child: const Icon(
-                          Icons.image,
-                          color: AppTheme.slate400,
-                        ),
+                        child: Icon(Icons.image, color: AppTheme.slate400),
                       ),
               ),
               Positioned(
@@ -356,7 +353,7 @@ class ImageDropzoneState extends State<ImageDropzone> {
     return Container(
       width: 140,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardBg,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppTheme.primary.withValues(alpha: 0.4)),
         boxShadow: [
@@ -384,7 +381,7 @@ class ImageDropzoneState extends State<ImageDropzone> {
                     fit: BoxFit.cover,
                     errorBuilder: (_, _, _) => Container(
                       color: AppTheme.primaryLight,
-                      child: const Center(
+                      child: Center(
                         child: Icon(
                           Icons.insert_drive_file,
                           color: AppTheme.primary,

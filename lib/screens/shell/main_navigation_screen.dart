@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
+import '../../models/user.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/clinic_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../consultant/consultant_screen.dart';
 import '../receptionist/receptionist_screen.dart';
 import '../resident/resident_screen.dart';
@@ -17,16 +20,22 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
-    ReceptionistScreen(),
-    ResidentScreen(),
-    ConsultantScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ClinicProvider>();
+    final themeProvider = context.watch<ThemeProvider>();
+    final auth = context.watch<AuthProvider>();
     final visits = provider.visits;
+
+    final userType = auth.currentUser?.type ?? UserType.receptionist;
+
+    final screens = <Widget>[
+      ReceptionistScreen(),
+      if (userType.canAccessResidentScreen) ResidentScreen(),
+      if (userType.canAccessConsultantScreen) ConsultantScreen(),
+    ];
+
+    final index = _currentIndex < screens.length ? _currentIndex : 0;
 
     final residentCount = visits
         .where(
@@ -44,18 +53,52 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         )
         .length;
 
+    final tabs = <
+      ({
+        String title,
+        IconData icon,
+        IconData activeIcon,
+        int? badgeCount,
+        Color? badgeColor,
+      })
+    >[
+      (
+        title: 'Receptionist',
+        icon: Icons.person_add_alt_1_outlined,
+        activeIcon: Icons.person_add_alt_1_rounded,
+        badgeCount: null,
+        badgeColor: null,
+      ),
+      if (userType.canAccessResidentScreen)
+        (
+          title: 'Resident Doctor',
+          icon: Icons.medical_services_outlined,
+          activeIcon: Icons.medical_services_rounded,
+          badgeCount: residentCount,
+          badgeColor: AppTheme.warning,
+        ),
+      if (userType.canAccessConsultantScreen)
+        (
+          title: 'Consultant Dashboard',
+          icon: Icons.dashboard_outlined,
+          activeIcon: Icons.dashboard_rounded,
+          badgeCount: consultantCount,
+          badgeColor: AppTheme.accent,
+        ),
+    ];
+
     return Scaffold(
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(68),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white,
-            border: const Border(
+            color: AppTheme.cardBg,
+            border: Border(
               bottom: BorderSide(color: AppTheme.slate200, width: 1),
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
+                color: AppTheme.shadow,
                 blurRadius: 10,
                 offset: const Offset(0, 2),
               ),
@@ -72,7 +115,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
+                      gradient: LinearGradient(
                         colors: [AppTheme.primary, AppTheme.primaryDark],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -88,7 +131,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     ),
                   ),
                   const SizedBox(width: 14),
-                  const Column(
+                  Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -117,73 +160,89 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _buildNavTab(
-                        index: 0,
-                        title: 'Receptionist',
-                        icon: Icons.person_add_alt_1_outlined,
-                        activeIcon: Icons.person_add_alt_1_rounded,
-                      ),
-                      const SizedBox(width: 8),
-                      _buildNavTab(
-                        index: 1,
-                        title: 'Resident Doctor',
-                        icon: Icons.medical_services_outlined,
-                        activeIcon: Icons.medical_services_rounded,
-                        badgeCount: residentCount,
-                        badgeColor: AppTheme.warning,
-                      ),
-                      const SizedBox(width: 8),
-                      _buildNavTab(
-                        index: 2,
-                        title: 'Consultant Dashboard',
-                        icon: Icons.dashboard_outlined,
-                        activeIcon: Icons.dashboard_rounded,
-                        badgeCount: consultantCount,
-                        badgeColor: AppTheme.accent,
-                      ),
+                      for (var i = 0; i < tabs.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 8),
+                        _buildNavTab(
+                          index: i,
+                          title: tabs[i].title,
+                          icon: tabs[i].icon,
+                          activeIcon: tabs[i].activeIcon,
+                          badgeCount: tabs[i].badgeCount,
+                          badgeColor: tabs[i].badgeColor,
+                        ),
+                      ],
                     ],
                   ),
 
                   const SizedBox(width: 32),
 
-                  // Right Status & Actions
+                  // Signed-in user
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 10,
                       vertical: 5,
                     ),
                     decoration: BoxDecoration(
-                      color: AppTheme.successLight,
+                      color: AppTheme.indigoLight,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        CircleAvatar(
-                          radius: 4,
-                          backgroundColor: AppTheme.success,
+                        Icon(
+                          Icons.person_outline_rounded,
+                          size: 14,
+                          color: AppTheme.indigo,
                         ),
-                        SizedBox(width: 6),
+                        const SizedBox(width: 6),
                         Text(
-                          'PocketBase Connected',
+                          '${auth.currentUser?.name?.isNotEmpty == true ? auth.currentUser!.name : auth.currentUser?.email ?? ''} · ${userType.label}',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: AppTheme.success,
+                            color: AppTheme.indigo,
                           ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 12),
+
+                  // Right Status & Actions
+                  _buildConnectionPill(provider),
+                  const SizedBox(width: 12),
+                  IconButton(
+                    tooltip: themeProvider.isDark
+                        ? 'Switch to Light Mode'
+                        : 'Switch to Dark Mode',
+                    icon: Icon(
+                      themeProvider.isDark
+                          ? Icons.light_mode_rounded
+                          : Icons.dark_mode_rounded,
+                      color: AppTheme.slate700,
+                      size: 20,
+                    ),
+                    onPressed: () => themeProvider.toggleTheme(),
+                  ),
+                  const SizedBox(width: 4),
                   IconButton(
                     tooltip: 'Sync / Refresh All',
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.refresh_rounded,
                       color: AppTheme.slate700,
                       size: 20,
                     ),
                     onPressed: () => provider.loadData(),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: 'Sign Out',
+                    icon: Icon(
+                      Icons.logout_rounded,
+                      color: AppTheme.slate700,
+                      size: 20,
+                    ),
+                    onPressed: () => context.read<AuthProvider>().logout(),
                   ),
                 ],
               ),
@@ -191,7 +250,62 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ),
         ),
       ),
-      body: IndexedStack(index: _currentIndex, children: _screens),
+      body: IndexedStack(index: index, children: screens),
+    );
+  }
+
+  Widget _buildConnectionPill(ClinicProvider provider) {
+    final bool loading = provider.isLoading;
+    final bool live = provider.realtimeConnected;
+
+    final Color bg;
+    final Color fg;
+    final String label;
+    if (loading) {
+      bg = AppTheme.warningLight;
+      fg = AppTheme.warning;
+      label = 'Loading PocketBase…';
+    } else if (live) {
+      bg = AppTheme.successLight;
+      fg = AppTheme.success;
+      label = 'Live Sync On';
+    } else {
+      bg = AppTheme.dangerLight;
+      fg = AppTheme.danger;
+      label = 'Live Sync Off';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (loading)
+            SizedBox(
+              width: 8,
+              height: 8,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation(fg),
+              ),
+            )
+          else
+            CircleAvatar(radius: 4, backgroundColor: fg),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: fg,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

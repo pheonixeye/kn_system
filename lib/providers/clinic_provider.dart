@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -9,6 +10,7 @@ import '../models/vital_signs.dart';
 
 class ClinicProvider extends ChangeNotifier {
   final PocketBaseService _pbService = PocketBaseService();
+  final String? _currentUserId;
 
   List<Patient> _patients = [];
   List<Visit> _visits = [];
@@ -20,8 +22,42 @@ class ClinicProvider extends ChangeNotifier {
   Visit? _selectedVisit;
   Patient? _selectedPatient;
 
-  ClinicProvider() {
-    _init();
+  bool _initialized = false;
+  bool _disposed = false;
+  Timer? _reconnectTimer;
+  static const int _maxStartupRetries = 5;
+
+  ClinicProvider({String? currentUserId}) : _currentUserId = currentUserId {
+    _setupRealtime();
+    _startReconnectWatchdog();
+  }
+
+  /// Starts the app-off bootstrap load: fetches all patients plus the
+  /// visits of today (and any still-active visits) from PocketBase, then
+  /// retries with backoff until it succeeds. Independent of the live
+  /// subscription, which only serves as a refresh trigger afterwards.
+  Future<bool> initialize() async {
+    if (_initialized || _disposed) return _initialized;
+    _initialized = true;
+
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    for (var attempt = 0; attempt < _maxStartupRetries; attempt++) {
+      if (_disposed) return false;
+      final ok = await loadData(showLoading: false);
+      if (ok || _disposed) {
+        _isLoading = false;
+        notifyListeners();
+        return ok;
+      }
+      await Future.delayed(Duration(seconds: 2 * (attempt + 1)));
+    }
+
+    _isLoading = false;
+    notifyListeners();
+    return false;
   }
 
   // Getters
@@ -58,20 +94,34 @@ class ClinicProvider extends ChangeNotifier {
     return _visits.where((v) => v.visitDate == today).toList();
   }
 
-  void _init() {
-    loadData();
-    _setupRealtime();
-  }
-
   void _setupRealtime() {
     _pbService.subscribeToVisits((e) {
       loadData(showLoading: false);
     });
+    _pbService.subscribeToPatients((e) {
+      loadData(showLoading: false);
+    });
   }
+
+  void _startReconnectWatchdog() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (_disposed) return;
+      if (!_pbService.visitsSubscribed || !_pbService.patientsSubscribed) {
+        _setupRealtime();
+      }
+    });
+  }
+
+  bool get realtimeConnected =>
+      _pbService.visitsSubscribed && _pbService.patientsSubscribed;
 
   @override
   void dispose() {
+    _disposed = true;
+    _reconnectTimer?.cancel();
     _pbService.unsubscribeFromVisits();
+    _pbService.unsubscribeFromPatients();
     super.dispose();
   }
 
@@ -95,7 +145,7 @@ class ClinicProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> loadData({bool showLoading = true}) async {
+  Future<bool> loadData({bool showLoading = true}) async {
     if (showLoading) {
       _isLoading = true;
       _errorMessage = null;
@@ -103,31 +153,68 @@ class ClinicProvider extends ChangeNotifier {
     }
 
     try {
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final activeStatuses = [
+        AppConstants.statusWaitingResident,
+        AppConstants.statusWithResident,
+        AppConstants.statusWaitingConsultant,
+        AppConstants.statusWithConsultant,
+      ];
+      final activeFilter = activeStatuses
+          .map((s) => 'status = "$s"')
+          .join(' || ');
+
       final results = await Future.wait([
         _pbService.getPatients(),
-        _pbService.getVisits(),
+        _pbService.getVisits(filter: activeFilter),
+        _pbService.getVisits(date: today),
       ]);
 
       _patients = results[0] as List<Patient>;
-      _visits = results[1] as List<Visit>;
+      final activeVisits = results[1] as List<Visit>;
+      final todayVisits = results[2] as List<Visit>;
+      _visits = _mergeVisits(activeVisits, todayVisits);
 
-      // Keep selected visit updated with latest data
+      // Keep selection updated with the latest data
       if (_selectedVisit != null) {
         final updated = _visits
             .where((v) => v.id == _selectedVisit!.id)
             .firstOrNull;
         _selectedVisit = updated ?? _selectedVisit;
       }
+      if (_selectedPatient != null) {
+        final updated = _patients
+            .where((p) => p.id == _selectedPatient!.id)
+            .firstOrNull;
+        _selectedPatient = updated ?? _selectedPatient;
+      }
 
       _errorMessage = null;
+      return true;
     } catch (e) {
       _errorMessage = 'Failed to load clinic data: $e';
+      return false;
     } finally {
       if (showLoading) {
         _isLoading = false;
       }
       notifyListeners();
     }
+  }
+
+  List<Visit> _mergeVisits(List<Visit> activeVisits, List<Visit> todayVisits) {
+    final byId = <String, Visit>{
+      for (final v in [...activeVisits, ...todayVisits]) v.id: v,
+    };
+    final merged = byId.values.toList()..sort((a, b) {
+        final aq = a.queueNumber ?? (1 << 30);
+        final bq = b.queueNumber ?? (1 << 30);
+        if (aq != bq) return aq.compareTo(bq);
+        final ac = a.created ?? DateTime(0);
+        final bc = b.created ?? DateTime(0);
+        return bc.compareTo(ac);
+      });
+    return merged;
   }
 
   // Receptionist Actions
@@ -152,6 +239,7 @@ class ClinicProvider extends ChangeNotifier {
         if (nationalId != null && nationalId.isNotEmpty)
           'national_id': nationalId.trim(),
         if (notes != null && notes.isNotEmpty) 'notes': notes.trim(),
+        if (_currentUserId != null) 'added_by': _currentUserId,
       });
 
       _patients.insert(0, patient);
@@ -162,6 +250,51 @@ class ClinicProvider extends ChangeNotifier {
     } catch (e) {
       _isLoading = false;
       _errorMessage = 'Failed to register patient: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<Patient> updatePatient(
+    String id, {
+    String? name,
+    String? phone,
+    String? dob,
+    String? gender,
+    String? nationalId,
+    String? notes,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final updated = await _pbService.updatePatient(id, {
+        if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+        if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
+        if (dob != null && dob.isNotEmpty) 'dob': dob.trim(),
+        if (gender != null && gender.isNotEmpty) 'gender': gender.trim(),
+        if (nationalId != null && nationalId.isNotEmpty)
+          'national_id': nationalId.trim(),
+        if (notes != null && notes.isNotEmpty) 'notes': notes.trim(),
+      });
+
+      final idx = _patients.indexWhere((p) => p.id == updated.id);
+      if (idx != -1) {
+        _patients[idx] = updated;
+      } else {
+        _patients.insert(0, updated);
+      }
+      if (_selectedPatient?.id == updated.id) {
+        _selectedPatient = updated;
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return updated;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to update patient: $e';
       notifyListeners();
       rethrow;
     }
@@ -191,6 +324,7 @@ class ClinicProvider extends ChangeNotifier {
           'status': AppConstants.statusWaitingResident,
           if (chiefComplaint != null && chiefComplaint.trim().isNotEmpty)
             'chief_complaint': chiefComplaint.trim(),
+          if (_currentUserId != null) 'added_by': _currentUserId,
         },
       );
 

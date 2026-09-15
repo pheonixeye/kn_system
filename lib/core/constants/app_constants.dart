@@ -2,11 +2,17 @@ class AppConstants {
   static const String appTitle = 'Khaled Nabil Clinics';
   static const String appSubtitle =
       'ProKliniK Integrated Clinical Workflow & Patient Management System';
-  static const String pocketBaseUrl = String.fromEnvironment('POCKET_BASE_URL');
+  static const String pocketBaseUrl = String.fromEnvironment('POCKETBASE_URL');
 
   // Collections
   static const String patientsCollection = 'patients';
   static const String visitsCollection = 'visits';
+  static const String usersCollection = 'users';
+
+  // User Types
+  static const String userTypeReceptionist = 'receptionist';
+  static const String userTypeResident = 'resident';
+  static const String userTypeConsultant = 'consultant';
 
   // Visit Statuses
   static const String statusWaitingResident = 'waiting_resident';

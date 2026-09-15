@@ -4,10 +4,10 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/patient.dart';
-import '../../models/visit.dart';
 import '../../providers/clinic_provider.dart';
-import '../../widgets/custom_badge.dart';
+import '../../widgets/active_queue_view.dart';
 import '../../widgets/stat_card.dart';
+import 'active_queue_screen.dart';
 
 class ReceptionistScreen extends StatefulWidget {
   const ReceptionistScreen({super.key});
@@ -62,9 +62,9 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
+            colorScheme: Theme.of(context).colorScheme.copyWith(
               primary: AppTheme.primary,
-              onPrimary: Colors.white,
+              onPrimary: AppTheme.onPrimary,
               onSurface: AppTheme.secondary,
             ),
           ),
@@ -133,6 +133,252 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
     }
   }
 
+  void _showEditPatientDialog(Patient patient) {
+    final formKey = GlobalKey<FormState>();
+    final nameCtrl = TextEditingController(text: patient.name);
+    final phoneCtrl = TextEditingController(text: patient.phone);
+    final dobCtrl = TextEditingController(text: patient.dob ?? '');
+    final nationalIdCtrl = TextEditingController(
+      text: patient.nationalId ?? '',
+    );
+    final notesCtrl = TextEditingController(text: patient.notes ?? '');
+    String gender = patient.gender ?? 'Male';
+    bool saving = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          Future<void> pickDate() async {
+            final now = DateTime.now();
+            final initial =
+                DateTime.tryParse(dobCtrl.text) ?? DateTime(1995, 1, 1);
+            final picked = await showDatePicker(
+              context: dialogCtx,
+              initialDate: initial.month > now.month && initial.year == now.year
+                  ? DateTime(now.year - 1, initial.month, initial.day)
+                  : initial,
+              firstDate: DateTime(1900),
+              lastDate: now,
+              builder: (context, child) {
+                return Theme(
+                  data: Theme.of(context).copyWith(
+                    colorScheme: Theme.of(context).colorScheme.copyWith(
+                      primary: AppTheme.primary,
+                      onPrimary: AppTheme.onPrimary,
+                      onSurface: AppTheme.secondary,
+                    ),
+                  ),
+                  child: child!,
+                );
+              },
+            );
+            if (picked != null) {
+              setDialogState(() {
+                dobCtrl.text = DateFormat('yyyy-MM-dd').format(picked);
+              });
+            }
+          }
+
+          Future<void> save() async {
+            if (!(formKey.currentState?.validate() ?? false)) return;
+            setDialogState(() => saving = true);
+            try {
+              await context.read<ClinicProvider>().updatePatient(
+                patient.id,
+                name: nameCtrl.text,
+                phone: phoneCtrl.text,
+                dob: dobCtrl.text,
+                gender: gender,
+                nationalId: nationalIdCtrl.text,
+                notes: notesCtrl.text,
+              );
+              if (dialogCtx.mounted) {
+                Navigator.of(dialogCtx).pop();
+              }
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: AppTheme.success,
+                    content: const Text('Patient info updated successfully!'),
+                  ),
+                );
+              }
+            } catch (e) {
+              setDialogState(() => saving = false);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: AppTheme.danger,
+                    content: Text('Error updating patient: $e'),
+                  ),
+                );
+              }
+            }
+          }
+
+          Widget label(String text) => Text(
+            text,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          );
+
+          return AlertDialog(
+            title: Text('Edit Patient'),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460, maxHeight: 540),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      label('Full Name *'),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(
+                          hintText: 'e.g. Johnathan Doe',
+                          isDense: true,
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Patient name is required';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      label('Mobile Phone Number *'),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          hintText: 'e.g. +1 555-0199',
+                          isDense: true,
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Mobile phone number is required';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                label('Date of Birth'),
+                                const SizedBox(height: 6),
+                                TextFormField(
+                                  controller: dobCtrl,
+                                  readOnly: true,
+                                  onTap: pickDate,
+                                  decoration: const InputDecoration(
+                                    hintText: 'YYYY-MM-DD',
+                                    isDense: true,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                label('Gender'),
+                                const SizedBox(height: 6),
+                                DropdownButtonFormField<String>(
+                                  initialValue: gender,
+                                  decoration: const InputDecoration(
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: 'Male',
+                                      child: Text('Male'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'Female',
+                                      child: Text('Female'),
+                                    ),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      setDialogState(() => gender = val);
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      label('National ID / Passport (Optional)'),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: nationalIdCtrl,
+                        decoration: const InputDecoration(
+                          hintText: 'e.g. ID-9823472',
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      label('Notes (Optional)'),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: notesCtrl,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          hintText: 'Allergies, conditions, remarks...',
+                          isDense: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogCtx).pop(),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: saving ? null : save,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: AppTheme.onPrimary,
+                ),
+                child: saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _showQuickCheckInDialog(Patient patient) {
     final complaintCtrl = TextEditingController();
     showDialog(
@@ -171,9 +417,9 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
               );
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
+                  SnackBar(
                     backgroundColor: AppTheme.success,
-                    content: Text('Patient added to queue!'),
+                    content: const Text('Patient added to queue!'),
                   ),
                 );
               }
@@ -205,6 +451,7 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
     final completedCount = visits
         .where((v) => v.status == AppConstants.statusCompleted)
         .length;
+    final todayVisitsCount = provider.todayVisits.length;
 
     return Scaffold(
       body: Container(
@@ -284,14 +531,14 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
                                       color: AppTheme.primaryLight,
                                       borderRadius: BorderRadius.circular(8),
                                     ),
-                                    child: const Icon(
+                                    child: Icon(
                                       Icons.person_add,
                                       color: AppTheme.primary,
                                       size: 20,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
-                                  const Expanded(
+                                  Expanded(
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
@@ -515,7 +762,7 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
                                       ),
                                     ),
                                     const SizedBox(width: 8),
-                                    const Expanded(
+                                    Expanded(
                                       child: Column(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
@@ -559,12 +806,12 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
                                           ? null
                                           : _submitPatient,
                                       icon: provider.isLoading
-                                          ? const SizedBox(
+                                          ? SizedBox(
                                               width: 16,
                                               height: 16,
                                               child: CircularProgressIndicator(
                                                 strokeWidth: 2,
-                                                color: Colors.white,
+                                                color: AppTheme.onPrimary,
                                               ),
                                             )
                                           : const Icon(Icons.check, size: 18),
@@ -596,7 +843,7 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
                                 children: [
                                   _buildTabButton(
                                     0,
-                                    'Active Queue (${visits.length})',
+                                    'Active Queue ($todayVisitsCount)',
                                     Icons.queue_music_outlined,
                                   ),
                                   const SizedBox(width: 8),
@@ -605,6 +852,26 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
                                     'All Patients (${patients.length})',
                                     Icons.folder_shared_outlined,
                                   ),
+                                  if (_selectedTab == 0) ...[
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      tooltip:
+                                          'Open Active Queue in Full Screen',
+                                      icon: Icon(
+                                        Icons.open_in_full_rounded,
+                                        size: 18,
+                                        color: AppTheme.primary,
+                                      ),
+                                      onPressed: () =>
+                                          Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const ActiveQueueScreen(),
+                                              fullscreenDialog: true,
+                                            ),
+                                          ),
+                                    ),
+                                  ],
                                   const SizedBox(width: 16),
                                   SizedBox(
                                     width: 200,
@@ -649,7 +916,9 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
                             // Tab Body
                             Expanded(
                               child: _selectedTab == 0
-                                  ? _buildQueueTable(provider, visits)
+                                  ? ActiveQueueView(
+                                      searchQuery: _searchController.text,
+                                    )
                                   : _buildPatientsTable(provider, patients),
                             ),
                           ],
@@ -703,110 +972,6 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
     );
   }
 
-  Widget _buildQueueTable(ClinicProvider provider, List<Visit> visits) {
-    final query = _searchController.text.toLowerCase().trim();
-    final filtered = visits.where((v) {
-      if (query.isEmpty) return true;
-      final name = v.patient?.name.toLowerCase() ?? '';
-      final phone = v.patient?.phone.toLowerCase() ?? '';
-      return name.contains(query) || phone.contains(query);
-    }).toList();
-
-    if (filtered.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.inbox_outlined,
-              size: 48,
-              color: AppTheme.slate400,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              query.isEmpty
-                  ? 'No active visits in the queue.'
-                  : 'No visits match your search.',
-              style: const TextStyle(color: AppTheme.slate500, fontSize: 13),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.separated(
-      itemCount: filtered.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final visit = filtered[index];
-        final patient = visit.patient;
-
-        return ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 4,
-          ),
-          leading: CircleAvatar(
-            backgroundColor: AppTheme.primaryLight,
-            child: Text(
-              '#${visit.queueNumber ?? (index + 1)}',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-                color: AppTheme.primary,
-              ),
-            ),
-          ),
-          title: Row(
-            children: [
-              Text(
-                patient?.name ?? 'Unknown Patient',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(width: 8),
-              if (patient?.gender != null)
-                Text(
-                  '(${patient!.gender})',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.slate400,
-                  ),
-                ),
-            ],
-          ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 2),
-              Text(
-                'Phone: ${patient?.phone ?? "-"} • DOB: ${patient?.dob ?? "-"} • Date: ${visit.visitDate ?? "-"}',
-                style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
-              ),
-              if (visit.chiefComplaint != null &&
-                  visit.chiefComplaint!.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Text(
-                  'Complaint: ${visit.chiefComplaint}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.slate700,
-                    fontStyle: FontStyle.italic,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ],
-          ),
-          trailing: CustomBadge.fromStatus(visit.status),
-        );
-      },
-    );
-  }
-
   Widget _buildPatientsTable(ClinicProvider provider, List<Patient> patients) {
     final query = _searchController.text.toLowerCase().trim();
     final filtered = patients.where((p) {
@@ -817,7 +982,7 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
     }).toList();
 
     if (filtered.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No patients found.',
           style: TextStyle(color: AppTheme.slate500),
@@ -839,7 +1004,7 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
             backgroundColor: AppTheme.slate100,
             child: Text(
               patient.name.isNotEmpty ? patient.name[0].toUpperCase() : 'P',
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: AppTheme.slate700,
               ),
@@ -851,16 +1016,34 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
           ),
           subtitle: Text(
             'Phone: ${patient.phone} • DOB: ${patient.dob ?? "-"} • Gender: ${patient.gender ?? "-"}',
-            style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
+            style: TextStyle(fontSize: 12, color: AppTheme.slate500),
           ),
-          trailing: ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              backgroundColor: AppTheme.primary,
-            ),
-            onPressed: () => _showQuickCheckInDialog(patient),
-            icon: const Icon(Icons.add, size: 14),
-            label: const Text('New Visit', style: TextStyle(fontSize: 12)),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Edit Patient',
+                icon: Icon(
+                  Icons.edit_outlined,
+                  size: 18,
+                  color: AppTheme.primary,
+                ),
+                onPressed: () => _showEditPatientDialog(patient),
+              ),
+              const SizedBox(width: 4),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  backgroundColor: AppTheme.primary,
+                ),
+                onPressed: () => _showQuickCheckInDialog(patient),
+                icon: const Icon(Icons.add, size: 14),
+                label: const Text('New Visit', style: TextStyle(fontSize: 12)),
+              ),
+            ],
           ),
         );
       },
