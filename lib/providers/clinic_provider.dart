@@ -1,74 +1,48 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import '../core/constants/app_constants.dart';
 import '../core/services/pocketbase_service.dart';
+import '../models/operation.dart';
 import '../models/patient.dart';
 import '../models/visit.dart';
 import '../models/vital_signs.dart';
 
 class ClinicProvider extends ChangeNotifier {
   final PocketBaseService _pbService = PocketBaseService();
-  final String? _currentUserId;
+  final String? currentUserId;
 
   List<Patient> _patients = [];
   List<Visit> _visits = [];
+  List<Operation> _operations = [];
+  final Map<String, List<Visit>> _patientVisits = {};
+  final Set<String> _loadingPatientVisits = {};
+
+  Visit? _selectedVisit;
+  Patient? _selectedPatient;
   bool _isLoading = false;
   String? _errorMessage;
   String _searchQuery = '';
   String _statusFilter = 'all';
 
-  Visit? _selectedVisit;
-  Patient? _selectedPatient;
-
-  bool _initialized = false;
-  bool _disposed = false;
-  Timer? _reconnectTimer;
-  static const int _maxStartupRetries = 5;
-
-  ClinicProvider({String? currentUserId}) : _currentUserId = currentUserId {
-    _setupRealtime();
-    _startReconnectWatchdog();
-  }
-
-  /// Starts the app-off bootstrap load: fetches all patients plus the
-  /// visits of today (and any still-active visits) from PocketBase, then
-  /// retries with backoff until it succeeds. Independent of the live
-  /// subscription, which only serves as a refresh trigger afterwards.
-  Future<bool> initialize() async {
-    if (_initialized || _disposed) return _initialized;
-    _initialized = true;
-
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    for (var attempt = 0; attempt < _maxStartupRetries; attempt++) {
-      if (_disposed) return false;
-      final ok = await loadData(showLoading: false);
-      if (ok || _disposed) {
-        _isLoading = false;
-        notifyListeners();
-        return ok;
-      }
-      await Future.delayed(Duration(seconds: 2 * (attempt + 1)));
-    }
-
-    _isLoading = false;
-    notifyListeners();
-    return false;
+  ClinicProvider({this.currentUserId}) {
+    // initialize on creation
   }
 
   // Getters
   List<Patient> get patients => _patients;
   List<Visit> get visits => _visits;
+  List<Operation> get operations => _operations;
+  Visit? get selectedVisit => _selectedVisit;
+  Patient? get selectedPatient => _selectedPatient;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String get searchQuery => _searchQuery;
   String get statusFilter => _statusFilter;
-  Visit? get selectedVisit => _selectedVisit;
-  Patient? get selectedPatient => _selectedPatient;
+  bool get realtimeConnected =>
+      _pbService.visitsSubscribed ||
+      _pbService.patientsSubscribed ||
+      _pbService.operationsSubscribed;
 
   List<Visit> get waitingResidentVisits => _visits
       .where(
@@ -94,35 +68,198 @@ class ClinicProvider extends ChangeNotifier {
     return _visits.where((v) => v.visitDate == today).toList();
   }
 
-  void _setupRealtime() {
-    _pbService.subscribeToVisits((e) {
-      loadData(showLoading: false);
-    });
-    _pbService.subscribeToPatients((e) {
-      loadData(showLoading: false);
-    });
+  List<Visit>? getPatientVisits(String patientId) => _patientVisits[patientId];
+  bool isPatientVisitsLoading(String patientId) =>
+      _loadingPatientVisits.contains(patientId);
+
+  Future<void> initialize() => loadData();
+  Future<void> init() => loadData();
+
+  Future<void> loadData({bool showLoading = true}) async {
+    if (showLoading) {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+    }
+
+    try {
+      final results = await Future.wait([
+        _pbService.getPatients(),
+        _pbService.getVisits(),
+        _pbService.getOperations(),
+      ]);
+
+      _patients = results[0] as List<Patient>;
+      _visits = results[1] as List<Visit>;
+      _operations = results[2] as List<Operation>;
+
+      // Keep selected visit updated
+      if (_selectedVisit != null) {
+        final updated = _visits
+            .where((v) => v.id == _selectedVisit!.id)
+            .firstOrNull;
+        _selectedVisit = updated ?? _selectedVisit;
+      }
+
+      _errorMessage = null;
+      _setupRealtime();
+    } catch (e) {
+      _errorMessage = 'Failed to load clinic data: $e';
+    } finally {
+      if (showLoading) {
+        _isLoading = false;
+      }
+      notifyListeners();
+    }
   }
 
-  void _startReconnectWatchdog() {
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      if (_disposed) return;
-      if (!_pbService.visitsSubscribed || !_pbService.patientsSubscribed) {
-        _setupRealtime();
+  void _setupRealtime() {
+    _pbService.subscribeToVisits((event) {
+      final action = event.action;
+      final record = event.record;
+      if (record == null) {
+        loadData(showLoading: false);
+        return;
+      }
+
+      if (action == 'create') {
+        final newVisit = Visit.fromRecord(record);
+        if (newVisit.isTodayVisit) {
+          final patient = _patients
+              .where((p) => p.id == newVisit.patientId)
+              .firstOrNull;
+          final fullVisit = newVisit.copyWith(patient: patient);
+          _updateVisitInList(fullVisit);
+        }
+
+        if (_patientVisits.containsKey(newVisit.patientId)) {
+          final patient = _patients
+              .where((p) => p.id == newVisit.patientId)
+              .firstOrNull;
+          final fullVisit = newVisit.copyWith(patient: patient);
+          _patientVisits[newVisit.patientId]!.insert(0, fullVisit);
+        }
+
+        notifyListeners();
+      } else if (action == 'update') {
+        final updatedVisit = Visit.fromRecord(record);
+        final patient = _patients
+            .where((p) => p.id == updatedVisit.patientId)
+            .firstOrNull;
+        final fullVisit = updatedVisit.copyWith(patient: patient);
+
+        final index = _visits.indexWhere((v) => v.id == updatedVisit.id);
+        if (index != -1) {
+          if (updatedVisit.isTodayVisit) {
+            _visits[index] = fullVisit;
+          } else {
+            _visits.removeAt(index);
+          }
+        } else if (updatedVisit.isTodayVisit) {
+          _visits.insert(0, fullVisit);
+        }
+
+        if (_selectedVisit?.id == updatedVisit.id) {
+          _selectedVisit = fullVisit;
+        }
+
+        if (_patientVisits.containsKey(updatedVisit.patientId)) {
+          final pIndex = _patientVisits[updatedVisit.patientId]!.indexWhere(
+            (v) => v.id == updatedVisit.id,
+          );
+          if (pIndex != -1) {
+            _patientVisits[updatedVisit.patientId]![pIndex] = fullVisit;
+          } else {
+            _patientVisits[updatedVisit.patientId]!.insert(0, fullVisit);
+          }
+        }
+
+        notifyListeners();
+      } else if (action == 'delete') {
+        final deletedId = record.id;
+        _visits.removeWhere((v) => v.id == deletedId);
+        if (_selectedVisit?.id == deletedId) {
+          _selectedVisit = null;
+        }
+
+        for (final list in _patientVisits.values) {
+          list.removeWhere((v) => v.id == deletedId);
+        }
+
+        notifyListeners();
       }
     });
-  }
 
-  bool get realtimeConnected =>
-      _pbService.visitsSubscribed && _pbService.patientsSubscribed;
+    _pbService.subscribeToPatients((event) {
+      final action = event.action;
+      final record = event.record;
+      if (record == null) return;
 
-  @override
-  void dispose() {
-    _disposed = true;
-    _reconnectTimer?.cancel();
-    _pbService.unsubscribeFromVisits();
-    _pbService.unsubscribeFromPatients();
-    super.dispose();
+      if (action == 'create') {
+        final newPatient = Patient.fromRecord(record);
+        _patients.insert(0, newPatient);
+        notifyListeners();
+      } else if (action == 'update') {
+        final updatedPatient = Patient.fromRecord(record);
+        final index = _patients.indexWhere((p) => p.id == updatedPatient.id);
+        if (index != -1) {
+          _patients[index] = updatedPatient;
+          if (_selectedPatient?.id == updatedPatient.id) {
+            _selectedPatient = updatedPatient;
+          }
+          for (var i = 0; i < _visits.length; i++) {
+            if (_visits[i].patientId == updatedPatient.id) {
+              _visits[i] = _visits[i].copyWith(patient: updatedPatient);
+            }
+          }
+          if (_selectedVisit?.patientId == updatedPatient.id) {
+            _selectedVisit = _selectedVisit?.copyWith(patient: updatedPatient);
+          }
+        }
+        notifyListeners();
+      } else if (action == 'delete') {
+        final deletedId = record.id;
+        _patients.removeWhere((p) => p.id == deletedId);
+        if (_selectedPatient?.id == deletedId) {
+          _selectedPatient = null;
+        }
+        notifyListeners();
+      }
+    });
+
+    _pbService.subscribeToOperations((event) {
+      final action = event.action;
+      final record = event.record;
+      if (record == null) return;
+
+      if (action == 'create') {
+        final newOp = Operation.fromRecord(record);
+        final patient = _patients
+            .where((p) => p.id == newOp.patientId)
+            .firstOrNull;
+        final fullOp = newOp.copyWith(patient: patient);
+        _operations.insert(0, fullOp);
+        notifyListeners();
+      } else if (action == 'update') {
+        final updatedOp = Operation.fromRecord(record);
+        final patient = _patients
+            .where((p) => p.id == updatedOp.patientId)
+            .firstOrNull;
+        final fullOp = updatedOp.copyWith(patient: patient);
+
+        final index = _operations.indexWhere((o) => o.id == updatedOp.id);
+        if (index != -1) {
+          _operations[index] = fullOp;
+        } else {
+          _operations.insert(0, fullOp);
+        }
+        notifyListeners();
+      } else if (action == 'delete') {
+        final deletedId = record.id;
+        _operations.removeWhere((o) => o.id == deletedId);
+        notifyListeners();
+      }
+    });
   }
 
   void setSearchQuery(String q) {
@@ -138,6 +275,9 @@ class ClinicProvider extends ChangeNotifier {
   void selectVisit(Visit? visit) {
     _selectedVisit = visit;
     notifyListeners();
+    if (visit != null && visit.patientId.isNotEmpty) {
+      fetchPatientVisitsHistory(visit.patientId);
+    }
   }
 
   void selectPatient(Patient? patient) {
@@ -145,76 +285,32 @@ class ClinicProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> loadData({bool showLoading = true}) async {
-    if (showLoading) {
-      _isLoading = true;
-      _errorMessage = null;
-      notifyListeners();
+  Future<List<Visit>> fetchPatientVisitsHistory(
+    String patientId, {
+    bool forceRefresh = false,
+  }) async {
+    if (patientId.isEmpty) return [];
+
+    if (!forceRefresh && _patientVisits.containsKey(patientId)) {
+      return _patientVisits[patientId]!;
     }
+
+    _loadingPatientVisits.add(patientId);
+    notifyListeners();
 
     try {
-      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final activeStatuses = [
-        AppConstants.statusWaitingResident,
-        AppConstants.statusWithResident,
-        AppConstants.statusWaitingConsultant,
-        AppConstants.statusWithConsultant,
-      ];
-      final activeFilter = activeStatuses
-          .map((s) => 'status = "$s"')
-          .join(' || ');
-
-      final results = await Future.wait([
-        _pbService.getPatients(),
-        _pbService.getVisits(filter: activeFilter),
-        _pbService.getVisits(date: today),
-      ]);
-
-      _patients = results[0] as List<Patient>;
-      final activeVisits = results[1] as List<Visit>;
-      final todayVisits = results[2] as List<Visit>;
-      _visits = _mergeVisits(activeVisits, todayVisits);
-
-      // Keep selection updated with the latest data
-      if (_selectedVisit != null) {
-        final updated = _visits
-            .where((v) => v.id == _selectedVisit!.id)
-            .firstOrNull;
-        _selectedVisit = updated ?? _selectedVisit;
-      }
-      if (_selectedPatient != null) {
-        final updated = _patients
-            .where((p) => p.id == _selectedPatient!.id)
-            .firstOrNull;
-        _selectedPatient = updated ?? _selectedPatient;
-      }
-
-      _errorMessage = null;
-      return true;
+      final history = await _pbService.getPatientVisitsHistory(
+        patientId: patientId,
+      );
+      _patientVisits[patientId] = history;
+      return history;
     } catch (e) {
-      _errorMessage = 'Failed to load clinic data: $e';
-      return false;
+      debugPrint('Error fetching patient visits history: $e');
+      return _patientVisits[patientId] ?? [];
     } finally {
-      if (showLoading) {
-        _isLoading = false;
-      }
+      _loadingPatientVisits.remove(patientId);
       notifyListeners();
     }
-  }
-
-  List<Visit> _mergeVisits(List<Visit> activeVisits, List<Visit> todayVisits) {
-    final byId = <String, Visit>{
-      for (final v in [...activeVisits, ...todayVisits]) v.id: v,
-    };
-    final merged = byId.values.toList()..sort((a, b) {
-        final aq = a.queueNumber ?? (1 << 30);
-        final bq = b.queueNumber ?? (1 << 30);
-        if (aq != bq) return aq.compareTo(bq);
-        final ac = a.created ?? DateTime(0);
-        final bc = b.created ?? DateTime(0);
-        return bc.compareTo(ac);
-      });
-    return merged;
   }
 
   // Receptionist Actions
@@ -224,6 +320,9 @@ class ClinicProvider extends ChangeNotifier {
     String? dob,
     String? gender,
     String? nationalId,
+    String? address,
+    String? emergencyContact,
+    String? occupation,
     String? notes,
   }) async {
     _isLoading = true;
@@ -238,8 +337,12 @@ class ClinicProvider extends ChangeNotifier {
         if (gender != null && gender.isNotEmpty) 'gender': gender.trim(),
         if (nationalId != null && nationalId.isNotEmpty)
           'national_id': nationalId.trim(),
+        if (address != null && address.isNotEmpty) 'address': address.trim(),
+        if (emergencyContact != null && emergencyContact.isNotEmpty)
+          'emergency_contact': emergencyContact.trim(),
+        if (occupation != null && occupation.isNotEmpty)
+          'occupation': occupation.trim(),
         if (notes != null && notes.isNotEmpty) 'notes': notes.trim(),
-        if (_currentUserId != null) 'added_by': _currentUserId,
       });
 
       _patients.insert(0, patient);
@@ -262,33 +365,39 @@ class ClinicProvider extends ChangeNotifier {
     String? dob,
     String? gender,
     String? nationalId,
+    String? address,
+    String? emergencyContact,
+    String? occupation,
     String? notes,
+    Map<String, dynamic>? data,
   }) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final updated = await _pbService.updatePatient(id, {
-        if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
-        if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
-        if (dob != null && dob.isNotEmpty) 'dob': dob.trim(),
-        if (gender != null && gender.isNotEmpty) 'gender': gender.trim(),
-        if (nationalId != null && nationalId.isNotEmpty)
-          'national_id': nationalId.trim(),
-        if (notes != null && notes.isNotEmpty) 'notes': notes.trim(),
-      });
+      final body = <String, dynamic>{
+        if (name != null) 'name': name.trim(),
+        if (phone != null) 'phone': phone.trim(),
+        if (dob != null) 'dob': dob.trim(),
+        if (gender != null) 'gender': gender.trim(),
+        if (nationalId != null) 'national_id': nationalId.trim(),
+        if (address != null) 'address': address.trim(),
+        if (emergencyContact != null)
+          'emergency_contact': emergencyContact.trim(),
+        if (occupation != null) 'occupation': occupation.trim(),
+        if (notes != null) 'notes': notes.trim(),
+        if (data != null) ...data,
+      };
 
-      final idx = _patients.indexWhere((p) => p.id == updated.id);
-      if (idx != -1) {
-        _patients[idx] = updated;
-      } else {
-        _patients.insert(0, updated);
+      final updated = await _pbService.updatePatient(id, body);
+      final index = _patients.indexWhere((p) => p.id == id);
+      if (index != -1) {
+        _patients[index] = updated;
       }
-      if (_selectedPatient?.id == updated.id) {
+      if (_selectedPatient?.id == id) {
         _selectedPatient = updated;
       }
-
       _isLoading = false;
       notifyListeners();
       return updated;
@@ -310,7 +419,6 @@ class ClinicProvider extends ChangeNotifier {
 
     try {
       final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      // Calculate next queue number for today
       final todayVisitsCount = _visits
           .where((v) => v.visitDate == todayStr)
           .length;
@@ -324,20 +432,86 @@ class ClinicProvider extends ChangeNotifier {
           'status': AppConstants.statusWaitingResident,
           if (chiefComplaint != null && chiefComplaint.trim().isNotEmpty)
             'chief_complaint': chiefComplaint.trim(),
-          if (_currentUserId != null) 'added_by': _currentUserId,
         },
       );
 
-      // Link patient data into visit
       final fullVisit = visit.copyWith(patient: patient);
-      _visits.insert(0, fullVisit);
+      _updateVisitInList(fullVisit);
       _selectedVisit = fullVisit;
+
+      if (_patientVisits.containsKey(patient.id)) {
+        _patientVisits[patient.id]!.insert(0, fullVisit);
+      }
+
       _isLoading = false;
       notifyListeners();
       return fullVisit;
     } catch (e) {
       _isLoading = false;
       _errorMessage = 'Failed to check-in patient: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<Visit> createVisit({
+    required String patientId,
+    int? queueNumber,
+    String? chiefComplaint,
+    String? notes,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final todayStr = AppConstants.todayDateString;
+      final qNum = queueNumber ?? (_visits.length + 1);
+
+      final visit = await _pbService.createVisit(
+        body: {
+          'patient': patientId,
+          'visit_date': todayStr,
+          'status': AppConstants.statusWaitingResident,
+          'queue_number': qNum,
+          if (chiefComplaint != null && chiefComplaint.isNotEmpty)
+            'chief_complaint': chiefComplaint,
+          if (notes != null && notes.isNotEmpty) 'resident_assessment': notes,
+        },
+      );
+
+      final patient = _patients.where((p) => p.id == patientId).firstOrNull;
+      final fullVisit = visit.copyWith(patient: patient);
+
+      _updateVisitInList(fullVisit);
+      _selectedVisit = fullVisit;
+
+      if (_patientVisits.containsKey(patientId)) {
+        _patientVisits[patientId]!.insert(0, fullVisit);
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return fullVisit;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to create visit: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> updateVisitStatus(Visit visit, String newStatus) async {
+    try {
+      final updated = await _pbService.updateVisitStatus(visit.id, newStatus);
+      final fullVisit = updated.copyWith(patient: visit.patient);
+      _updateVisitInList(fullVisit);
+      if (_selectedVisit?.id == visit.id) {
+        _selectedVisit = fullVisit;
+      }
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = 'Failed to update visit status: $e';
       notifyListeners();
       rethrow;
     }
@@ -421,6 +595,16 @@ class ClinicProvider extends ChangeNotifier {
       final fullVisit = updated.copyWith(patient: visit.patient);
       _updateVisitInList(fullVisit);
       _selectedVisit = fullVisit;
+
+      if (_patientVisits.containsKey(visit.patientId)) {
+        final pIdx = _patientVisits[visit.patientId]!.indexWhere(
+          (v) => v.id == visit.id,
+        );
+        if (pIdx != -1) {
+          _patientVisits[visit.patientId]![pIdx] = fullVisit;
+        }
+      }
+
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -518,11 +702,280 @@ class ClinicProvider extends ChangeNotifier {
       final fullVisit = updated.copyWith(patient: visit.patient);
       _updateVisitInList(fullVisit);
       _selectedVisit = fullVisit;
+
+      if (_patientVisits.containsKey(visit.patientId)) {
+        final pIdx = _patientVisits[visit.patientId]!.indexWhere(
+          (v) => v.id == visit.id,
+        );
+        if (pIdx != -1) {
+          _patientVisits[visit.patientId]![pIdx] = fullVisit;
+        }
+      }
+
       _isLoading = false;
       notifyListeners();
     } catch (e) {
       _isLoading = false;
       _errorMessage = 'Failed to save consultant evaluation: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<Visit> sendVisitBackToResident(
+    Visit visit, {
+    String? notes,
+    String? consultantName,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final body = <String, dynamic>{
+        'status': AppConstants.statusWaitingResident,
+        if (notes != null && notes.isNotEmpty) 'consultant_notes': notes.trim(),
+        if (consultantName != null && consultantName.isNotEmpty)
+          'consultant_name': consultantName.trim(),
+      };
+
+      final updated = await _pbService.updateVisit(id: visit.id, body: body);
+      final fullVisit = updated.copyWith(patient: visit.patient);
+
+      _updateVisitInList(fullVisit);
+      _selectedVisit = fullVisit;
+
+      if (_patientVisits.containsKey(visit.patientId)) {
+        final pIdx = _patientVisits[visit.patientId]!.indexWhere(
+          (v) => v.id == visit.id,
+        );
+        if (pIdx != -1) {
+          _patientVisits[visit.patientId]![pIdx] = fullVisit;
+        }
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return fullVisit;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to send visit back to resident: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<Visit> sendVisitToManagement(
+    Visit visit, {
+    String? diagnosis,
+    String? plan,
+    String? prescription,
+    String? notes,
+    String? consultantName,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final body = <String, dynamic>{
+        'status': AppConstants.statusSentToManagement,
+        if (diagnosis != null) 'consultant_diagnosis': diagnosis.trim(),
+        if (plan != null) 'consultant_plan': plan.trim(),
+        if (prescription != null)
+          'consultant_prescription': prescription.trim(),
+        if (notes != null) 'consultant_notes': notes.trim(),
+        if (consultantName != null && consultantName.isNotEmpty)
+          'consultant_name': consultantName.trim(),
+      };
+
+      final updated = await _pbService.updateVisit(id: visit.id, body: body);
+      final fullVisit = updated.copyWith(patient: visit.patient);
+
+      _updateVisitInList(fullVisit);
+      _selectedVisit = fullVisit;
+
+      if (_patientVisits.containsKey(visit.patientId)) {
+        final pIdx = _patientVisits[visit.patientId]!.indexWhere(
+          (v) => v.id == visit.id,
+        );
+        if (pIdx != -1) {
+          _patientVisits[visit.patientId]![pIdx] = fullVisit;
+        }
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return fullVisit;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to send visit to management: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<Visit> reviseVisitAssessment({
+    required Visit visit,
+    String? diagnosis,
+    String? plan,
+    String? prescription,
+    String? notes,
+    String? consultantName,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final body = <String, dynamic>{
+        if (diagnosis != null) 'consultant_diagnosis': diagnosis.trim(),
+        if (plan != null) 'consultant_plan': plan.trim(),
+        if (prescription != null)
+          'consultant_prescription': prescription.trim(),
+        if (notes != null) 'consultant_notes': notes.trim(),
+        if (consultantName != null && consultantName.isNotEmpty)
+          'consultant_name': consultantName.trim(),
+      };
+
+      final updated = await _pbService.updateVisit(id: visit.id, body: body);
+      final fullVisit = updated.copyWith(patient: visit.patient);
+
+      _updateVisitInList(fullVisit);
+      _selectedVisit = fullVisit;
+
+      if (_patientVisits.containsKey(visit.patientId)) {
+        final pIndex = _patientVisits[visit.patientId]!.indexWhere(
+          (v) => v.id == visit.id,
+        );
+        if (pIndex != -1) {
+          _patientVisits[visit.patientId]![pIndex] = fullVisit;
+        } else {
+          _patientVisits[visit.patientId]!.insert(0, fullVisit);
+        }
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return fullVisit;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to revise visit record: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  // Operations Management Actions
+  Future<Operation> scheduleOperation({
+    required String patientId,
+    required DateTime dateTime,
+    int? graftsExpected,
+    int? graftsDone,
+    double? totalPrice,
+    double? deposit,
+    double? remainingAtOperation,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final body = <String, dynamic>{
+        'patient': patientId,
+        'date_time': dateTime.toUtc().toIso8601String(),
+      };
+      if (graftsExpected != null) body['grafts_expected'] = graftsExpected;
+      if (graftsDone != null) body['grafts_done'] = graftsDone;
+      if (totalPrice != null) body['total_price'] = totalPrice;
+      if (deposit != null) body['deposit'] = deposit;
+      if (remainingAtOperation != null) {
+        body['remaining_at_operation'] = remainingAtOperation;
+      }
+
+      final created = await _pbService.createOperation(body: body);
+      final patient = _patients.where((p) => p.id == patientId).firstOrNull;
+      final fullOp = created.copyWith(patient: patient);
+
+      _operations.insert(0, fullOp);
+      _isLoading = false;
+      notifyListeners();
+      return fullOp;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to schedule operation: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<Operation> updateOperation(
+    String id, {
+    String? patientId,
+    DateTime? dateTime,
+    int? graftsExpected,
+    int? graftsDone,
+    double? totalPrice,
+    double? deposit,
+    double? remainingAtOperation,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final body = <String, dynamic>{};
+      if (patientId != null && patientId.isNotEmpty) {
+        body['patient'] = patientId;
+      }
+      if (dateTime != null) {
+        body['date_time'] = dateTime.toUtc().toIso8601String();
+      }
+      if (graftsExpected != null) body['grafts_expected'] = graftsExpected;
+      if (graftsDone != null) body['grafts_done'] = graftsDone;
+      if (totalPrice != null) body['total_price'] = totalPrice;
+      if (deposit != null) body['deposit'] = deposit;
+      if (remainingAtOperation != null) {
+        body['remaining_at_operation'] = remainingAtOperation;
+      }
+
+      final updated = await _pbService.updateOperation(id: id, body: body);
+      final patient = _patients
+          .where((p) => p.id == (patientId ?? updated.patientId))
+          .firstOrNull;
+      final fullOp = updated.copyWith(patient: patient);
+
+      final idx = _operations.indexWhere((o) => o.id == id);
+      if (idx != -1) {
+        _operations[idx] = fullOp;
+      } else {
+        _operations.insert(0, fullOp);
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return fullOp;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to update operation: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> deleteOperation(String id) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _pbService.deleteOperation(id);
+      _operations.removeWhere((o) => o.id == id);
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to delete operation: $e';
       notifyListeners();
       rethrow;
     }
@@ -535,5 +988,13 @@ class ClinicProvider extends ChangeNotifier {
     } else {
       _visits.insert(0, updatedVisit);
     }
+  }
+
+  @override
+  void dispose() {
+    _pbService.unsubscribeFromVisits();
+    _pbService.unsubscribeFromPatients();
+    _pbService.unsubscribeFromOperations();
+    super.dispose();
   }
 }

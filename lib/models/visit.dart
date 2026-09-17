@@ -55,6 +55,14 @@ class Visit extends Equatable {
     this.updated,
   });
 
+  bool get isTodayVisit {
+    if (visitDate == null || visitDate!.isEmpty) return false;
+    final now = DateTime.now();
+    final todayStr =
+        '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    return visitDate!.startsWith(todayStr);
+  }
+
   String getImageUrl(String filename) {
     return '${AppConstants.pocketBaseUrl}/api/files/${AppConstants.visitsCollection}/$id/$filename';
   }

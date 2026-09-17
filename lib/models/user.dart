@@ -5,6 +5,7 @@ import '../core/constants/app_constants.dart';
 enum UserType {
   receptionist(AppConstants.userTypeReceptionist, 'Receptionist'),
   resident(AppConstants.userTypeResident, 'Resident Doctor'),
+  manager(AppConstants.userTypeManager, 'Manager'),
   consultant(AppConstants.userTypeConsultant, 'Consultant');
 
   const UserType(this.value, this.label);
@@ -22,9 +23,18 @@ enum UserType {
 
   bool get canAccessReceptionistScreen => true;
 
-  bool get canAccessResidentScreen => this != UserType.receptionist;
+  bool get canAccessResidentScreen =>
+      this == UserType.resident || this == UserType.consultant;
 
   bool get canAccessConsultantScreen => this == UserType.consultant;
+
+  bool get canAccessManagerScreen =>
+      this == UserType.manager || this == UserType.consultant;
+
+  bool get canAccessManagementScreen =>
+      this == UserType.manager ||
+      this == UserType.consultant ||
+      this == UserType.receptionist;
 }
 
 class User extends Equatable {
@@ -57,36 +67,28 @@ class User extends Equatable {
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
-      id: json['id'] as String,
-      email: (json['email'] as String?) ?? '',
+      id: json['id'] as String? ?? '',
+      email: json['email'] as String? ?? '',
       name: json['name'] as String?,
       type: UserType.fromString(json['type'] as String?),
+      created: json['created'] != null
+          ? DateTime.tryParse(json['created'].toString())
+          : null,
+      updated: json['updated'] != null
+          ? DateTime.tryParse(json['updated'].toString())
+          : null,
     );
   }
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'email': email,
-    if (name != null) 'name': name,
-    'type': type.value,
-  };
-
-  User copyWith({
-    String? id,
-    String? email,
-    String? name,
-    UserType? type,
-    DateTime? created,
-    DateTime? updated,
-  }) {
-    return User(
-      id: id ?? this.id,
-      email: email ?? this.email,
-      name: name ?? this.name,
-      type: type ?? this.type,
-      created: created ?? this.created,
-      updated: updated ?? this.updated,
-    );
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'email': email,
+      'name': name,
+      'type': type.value,
+      if (created != null) 'created': created!.toIso8601String(),
+      if (updated != null) 'updated': updated!.toIso8601String(),
+    };
   }
 
   @override

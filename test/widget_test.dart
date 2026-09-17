@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
+import 'package:kn_system/core/constants/app_constants.dart';
 import 'package:kn_system/core/theme/app_theme.dart';
 import 'package:kn_system/models/patient.dart';
 import 'package:kn_system/models/visit.dart';
@@ -43,6 +45,29 @@ void main() {
 
       final url = visit.getImageUrl('xray.png');
       expect(url, contains('/api/files/visits/vis_123/xray.png'));
+    });
+
+    test('Visit copyWith and revision fields test', () {
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final visit = Visit(
+        id: 'vis_456',
+        patientId: 'pat_2',
+        visitDate: today,
+        status: AppConstants.statusWaitingConsultant,
+        chiefComplaint: 'Headache',
+      );
+
+      final revised = visit.copyWith(
+        consultantDiagnosis: 'Tension headache',
+        consultantPlan: 'Hydration and rest',
+        consultantPrescription: 'Paracetamol 500mg',
+        status: AppConstants.statusCompleted,
+      );
+
+      expect(revised.consultantDiagnosis, equals('Tension headache'));
+      expect(revised.consultantPlan, equals('Hydration and rest'));
+      expect(revised.consultantPrescription, equals('Paracetamol 500mg'));
+      expect(revised.status, equals(AppConstants.statusCompleted));
     });
 
     testWidgets('StatCard and CustomBadge render test', (

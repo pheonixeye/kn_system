@@ -7,6 +7,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/clinic_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../consultant/consultant_screen.dart';
+import '../management/management_screen.dart';
 import '../receptionist/receptionist_screen.dart';
 import '../resident/resident_screen.dart';
 
@@ -30,9 +31,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final userType = auth.currentUser?.type ?? UserType.receptionist;
 
     final screens = <Widget>[
-      ReceptionistScreen(),
-      if (userType.canAccessResidentScreen) ResidentScreen(),
-      if (userType.canAccessConsultantScreen) ConsultantScreen(),
+      const ReceptionistScreen(),
+      if (userType.canAccessResidentScreen) const ResidentScreen(),
+      if (userType.canAccessConsultantScreen) const ConsultantScreen(),
+      if (userType.canAccessManagementScreen) const ManagementScreen(),
     ];
 
     final index = _currentIndex < screens.length ? _currentIndex : 0;
@@ -53,39 +55,52 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         )
         .length;
 
-    final tabs = <
-      ({
-        String title,
-        IconData icon,
-        IconData activeIcon,
-        int? badgeCount,
-        Color? badgeColor,
-      })
-    >[
-      (
-        title: 'Receptionist',
-        icon: Icons.person_add_alt_1_outlined,
-        activeIcon: Icons.person_add_alt_1_rounded,
-        badgeCount: null,
-        badgeColor: null,
-      ),
-      if (userType.canAccessResidentScreen)
-        (
-          title: 'Resident Doctor',
-          icon: Icons.medical_services_outlined,
-          activeIcon: Icons.medical_services_rounded,
-          badgeCount: residentCount,
-          badgeColor: AppTheme.warning,
-        ),
-      if (userType.canAccessConsultantScreen)
-        (
-          title: 'Consultant Dashboard',
-          icon: Icons.dashboard_outlined,
-          activeIcon: Icons.dashboard_rounded,
-          badgeCount: consultantCount,
-          badgeColor: AppTheme.accent,
-        ),
-    ];
+    final managementCount = visits
+        .where((v) => v.status == AppConstants.statusSentToManagement)
+        .length;
+
+    final tabs =
+        <
+          ({
+            String title,
+            IconData icon,
+            IconData activeIcon,
+            int? badgeCount,
+            Color? badgeColor,
+          })
+        >[
+          (
+            title: 'Receptionist',
+            icon: Icons.person_add_alt_1_outlined,
+            activeIcon: Icons.person_add_alt_1_rounded,
+            badgeCount: null,
+            badgeColor: null,
+          ),
+          if (userType.canAccessResidentScreen)
+            (
+              title: 'Resident Doctor',
+              icon: Icons.medical_services_outlined,
+              activeIcon: Icons.medical_services_rounded,
+              badgeCount: residentCount,
+              badgeColor: AppTheme.warning,
+            ),
+          if (userType.canAccessConsultantScreen)
+            (
+              title: 'Consultant Dashboard',
+              icon: Icons.dashboard_outlined,
+              activeIcon: Icons.dashboard_rounded,
+              badgeCount: consultantCount,
+              badgeColor: AppTheme.accent,
+            ),
+          if (userType.canAccessManagementScreen)
+            (
+              title: 'Management',
+              icon: Icons.calendar_month_outlined,
+              activeIcon: Icons.calendar_month_rounded,
+              badgeCount: managementCount > 0 ? managementCount : null,
+              badgeColor: AppTheme.purple,
+            ),
+        ];
 
     return Scaffold(
       appBar: PreferredSize(
@@ -154,95 +169,207 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(width: 32),
+                  const SizedBox(width: 40),
 
                   // Navigation Tabs
                   Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (var i = 0; i < tabs.length; i++) ...[
-                        if (i > 0) const SizedBox(width: 8),
-                        _buildNavTab(
-                          index: i,
-                          title: tabs[i].title,
-                          icon: tabs[i].icon,
-                          activeIcon: tabs[i].activeIcon,
-                          badgeCount: tabs[i].badgeCount,
-                          badgeColor: tabs[i].badgeColor,
-                        ),
-                      ],
-                    ],
-                  ),
-
-                  const SizedBox(width: 32),
-
-                  // Signed-in user
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppTheme.indigoLight,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.person_outline_rounded,
-                          size: 14,
-                          color: AppTheme.indigo,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${auth.currentUser?.name?.isNotEmpty == true ? auth.currentUser!.name : auth.currentUser?.email ?? ''} · ${userType.label}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.indigo,
+                    children: List.generate(tabs.length, (i) {
+                      final item = tabs[i];
+                      final isSelected = index == i;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: InkWell(
+                          onTap: () => setState(() => _currentIndex = i),
+                          borderRadius: BorderRadius.circular(8),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppTheme.primary
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isSelected ? item.activeIcon : item.icon,
+                                  size: 18,
+                                  color: isSelected
+                                      ? AppTheme.onPrimary
+                                      : AppTheme.slate500,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  item.title,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w700
+                                        : FontWeight.w600,
+                                    color: isSelected
+                                        ? AppTheme.onPrimary
+                                        : AppTheme.slate700,
+                                  ),
+                                ),
+                                if (item.badgeCount != null &&
+                                    item.badgeCount! > 0) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? Colors.white
+                                          : (item.badgeColor ??
+                                                AppTheme.accent),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '${item.badgeCount}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: isSelected
+                                            ? AppTheme.primary
+                                            : Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ),
-                      ],
-                    ),
+                      );
+                    }),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 40),
 
-                  // Right Status & Actions
-                  _buildConnectionPill(provider),
-                  const SizedBox(width: 12),
-                  IconButton(
-                    tooltip: themeProvider.isDark
-                        ? 'Switch to Light Mode'
-                        : 'Switch to Dark Mode',
-                    icon: Icon(
-                      themeProvider.isDark
-                          ? Icons.light_mode_rounded
-                          : Icons.dark_mode_rounded,
-                      color: AppTheme.slate700,
-                      size: 20,
-                    ),
-                    onPressed: () => themeProvider.toggleTheme(),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    tooltip: 'Sync / Refresh All',
-                    icon: Icon(
-                      Icons.refresh_rounded,
-                      color: AppTheme.slate700,
-                      size: 20,
-                    ),
-                    onPressed: () => provider.loadData(),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    tooltip: 'Sign Out',
-                    icon: Icon(
-                      Icons.logout_rounded,
-                      color: AppTheme.slate700,
-                      size: 20,
-                    ),
-                    onPressed: () => context.read<AuthProvider>().logout(),
+                  // Right Side Actions: Real-time Indicator, Theme, User Info & Logout
+                  Row(
+                    children: [
+                      // Realtime Status Indicator
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.successLight,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: AppTheme.success,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Live Sync',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.success,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+
+                      // Dark/Light Theme Toggle
+                      IconButton(
+                        tooltip: themeProvider.isDark
+                            ? 'Switch to Light Mode'
+                            : 'Switch to Dark Mode',
+                        icon: Icon(
+                          themeProvider.isDark
+                              ? Icons.light_mode_rounded
+                              : Icons.dark_mode_outlined,
+                          size: 20,
+                          color: AppTheme.slate700,
+                        ),
+                        onPressed: () => themeProvider.toggleTheme(),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // User Info Badge
+                      if (auth.currentUser != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.slate100,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.account_circle_outlined,
+                                size: 16,
+                                color: AppTheme.slate700,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                auth.currentUser?.name ??
+                                    auth.currentUser?.email ??
+                                    '',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.slate700,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryLight,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  auth.currentUser!.type.label,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.primary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+
+                      // Logout Button
+                      IconButton(
+                        tooltip: 'Logout',
+                        icon: Icon(
+                          Icons.logout_rounded,
+                          size: 18,
+                          color: AppTheme.danger,
+                        ),
+                        onPressed: () async {
+                          await auth.logout();
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -250,127 +377,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ),
         ),
       ),
-      body: IndexedStack(index: index, children: screens),
-    );
-  }
-
-  Widget _buildConnectionPill(ClinicProvider provider) {
-    final bool loading = provider.isLoading;
-    final bool live = provider.realtimeConnected;
-
-    final Color bg;
-    final Color fg;
-    final String label;
-    if (loading) {
-      bg = AppTheme.warningLight;
-      fg = AppTheme.warning;
-      label = 'Loading PocketBase…';
-    } else if (live) {
-      bg = AppTheme.successLight;
-      fg = AppTheme.success;
-      label = 'Live Sync On';
-    } else {
-      bg = AppTheme.dangerLight;
-      fg = AppTheme.danger;
-      label = 'Live Sync Off';
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (loading)
-            SizedBox(
-              width: 8,
-              height: 8,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation(fg),
-              ),
-            )
-          else
-            CircleAvatar(radius: 4, backgroundColor: fg),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: fg,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNavTab({
-    required int index,
-    required String title,
-    required IconData icon,
-    required IconData activeIcon,
-    int? badgeCount,
-    Color? badgeColor,
-  }) {
-    final isSelected = _currentIndex == index;
-    return InkWell(
-      onTap: () => setState(() => _currentIndex = index),
-      borderRadius: BorderRadius.circular(8),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primaryLight : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isSelected
-                ? AppTheme.primary.withValues(alpha: 0.3)
-                : Colors.transparent,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isSelected ? activeIcon : icon,
-              size: 18,
-              color: isSelected ? AppTheme.primary : AppTheme.slate500,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                color: isSelected ? AppTheme.primary : AppTheme.slate700,
-              ),
-            ),
-            if (badgeCount != null && badgeCount > 0) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: badgeColor ?? AppTheme.primary,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '$badgeCount',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+      body: screens[index],
     );
   }
 }

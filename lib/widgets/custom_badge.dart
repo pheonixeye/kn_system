@@ -44,6 +44,11 @@ class CustomBadge extends StatelessWidget {
         fg = AppTheme.purple;
         ic = Icons.person_search_outlined;
         break;
+      case AppConstants.statusSentToManagement:
+        bg = const Color(0xFFF3E8FF);
+        fg = const Color(0xFF7E22CE);
+        ic = Icons.event_note_rounded;
+        break;
       case AppConstants.statusCompleted:
         bg = AppTheme.successLight;
         fg = AppTheme.success;
@@ -68,29 +73,28 @@ class CustomBadge extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: isSmall ? 8 : 10,
-        vertical: isSmall ? 3 : 5,
+        vertical: isSmall ? 2 : 4,
       ),
       decoration: BoxDecoration(
-        color: color ?? AppTheme.primaryLight,
-        borderRadius: BorderRadius.circular(6),
+        color: color ?? AppTheme.slate100,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: (textColor ?? AppTheme.slate700).withValues(alpha: 0.2),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(
-              icon,
-              size: isSmall ? 12 : 14,
-              color: textColor ?? AppTheme.primary,
-            ),
+            Icon(icon, size: isSmall ? 12 : 14, color: textColor),
             const SizedBox(width: 4),
           ],
           Text(
             label,
             style: TextStyle(
-              fontSize: isSmall ? 11 : 12,
+              fontSize: isSmall ? 10 : 11,
               fontWeight: FontWeight.w600,
-              color: textColor ?? AppTheme.primary,
+              color: textColor ?? AppTheme.slate700,
             ),
           ),
         ],

@@ -91,9 +91,167 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     }
   }
 
+  Future<void> _sendBackToResident(Visit visit) async {
+    final noteController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.undo_rounded, color: AppTheme.warning),
+            const SizedBox(width: 8),
+            const Text('Send Back to Resident'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This will move patient ${visit.patient?.name ?? "this patient"} back to the Resident Doctor queue for re-intake or further evaluation.',
+              style: TextStyle(fontSize: 13, color: AppTheme.slate700),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Instructions / Notes for Resident (Optional):',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: noteController,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                hintText:
+                    'e.g. Please check blood pressure again, take clearer scalp photo...',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.warning),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            icon: const Icon(Icons.undo_rounded, size: 16),
+            label: const Text('Send Back'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        final provider = context.read<ClinicProvider>();
+        final combinedNotes = [
+          if (_notesController.text.trim().isNotEmpty)
+            _notesController.text.trim(),
+          if (noteController.text.trim().isNotEmpty)
+            'Consultant note to resident: ${noteController.text.trim()}',
+        ].join('\n');
+
+        await provider.sendVisitBackToResident(
+          visit,
+          notes: combinedNotes,
+          consultantName: _currentOperatorName(),
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppTheme.warning,
+              content: const Text(
+                'Patient has been sent back to the Resident Doctor queue.',
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppTheme.danger,
+              content: Text('Failed to send visit back to resident: $e'),
+            ),
+          );
+        }
+      }
+    }
+    noteController.dispose();
+  }
+
+  Future<void> _sendToManagement(Visit visit) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.calendar_month_rounded, color: AppTheme.purple),
+            const SizedBox(width: 8),
+            const Text('Refer to Management'),
+          ],
+        ),
+        content: Text(
+          'Send patient ${visit.patient?.name ?? "this patient"} to the Management screen for operation scheduling and pre-op booking?',
+          style: TextStyle(fontSize: 13, color: AppTheme.slate700),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.purple,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            icon: const Icon(Icons.send_rounded, size: 16),
+            label: const Text('Send to Management'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        final provider = context.read<ClinicProvider>();
+        await provider.sendVisitToManagement(
+          visit,
+          diagnosis: _diagnosisController.text,
+          plan: _planController.text,
+          prescription: _prescriptionController.text,
+          notes: _notesController.text,
+          consultantName: _currentOperatorName(),
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppTheme.purple,
+              content: const Text(
+                'Patient referred to Management for operation scheduling!',
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppTheme.danger,
+              content: Text('Failed to refer patient to management: $e'),
+            ),
+          );
+        }
+      }
+    }
+  }
+
   String _currentOperatorName() {
-    final operatorName =
-        context.read<AuthProvider>().currentUser?.name?.trim();
+    final operatorName = context.read<AuthProvider>().currentUser?.name?.trim();
     final name = (operatorName != null && operatorName.isNotEmpty)
         ? operatorName
         : _consultantNameController.text.trim();
@@ -106,14 +264,15 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
   Future<void> _printReport(Visit visit) async {
     setState(() => _isGeneratingPdf = true);
     try {
-      // First update the visit locally so the PDF has the current form values
-      final updatedVisit = visit.copyWith(
-        consultantDiagnosis: _diagnosisController.text,
-        consultantPlan: _planController.text,
-        consultantPrescription: _prescriptionController.text,
-        consultantNotes: _notesController.text,
-        consultantName: _currentOperatorName(),
-      );
+      final updatedVisit = visit.id == _currentLoadedVisitId
+          ? visit.copyWith(
+              consultantDiagnosis: _diagnosisController.text,
+              consultantPlan: _planController.text,
+              consultantPrescription: _prescriptionController.text,
+              consultantNotes: _notesController.text,
+              consultantName: _currentOperatorName(),
+            )
+          : visit;
 
       await PdfService.printVisitReport(updatedVisit);
     } catch (e) {
@@ -128,6 +287,592 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     } finally {
       if (mounted) setState(() => _isGeneratingPdf = false);
     }
+  }
+
+  void _showPastVisitsDialog(
+    Visit currentVisit,
+    List<Visit> pastVisits,
+    bool isLoading,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 800, maxHeight: 700),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryLight,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.history_edu_outlined,
+                            color: AppTheme.primary,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Patient Visit History',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.secondary,
+                              ),
+                            ),
+                            Text(
+                              '${currentVisit.patient?.name ?? "Patient"} • ${pastVisits.length} previous visit${pastVisits.length == 1 ? "" : "s"}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.slate500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(dialogCtx).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : pastVisits.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.folder_open_outlined,
+                                size: 48,
+                                color: AppTheme.slate400,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No previous visits recorded for this patient.',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: AppTheme.slate700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'This is the patient\'s first consultation.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.slate400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.separated(
+                          itemCount: pastVisits.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 16),
+                          itemBuilder: (context, idx) {
+                            final pastVisit = pastVisits[idx];
+                            return _buildPastVisitCard(
+                              pastVisit,
+                              isDialog: true,
+                            );
+                          },
+                        ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogCtx).pop(),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showPastVisitReviseDialog(Visit pastVisit) {
+    final diagCtrl = TextEditingController(
+      text: pastVisit.consultantDiagnosis ?? '',
+    );
+    final planCtrl = TextEditingController(
+      text: pastVisit.consultantPlan ?? '',
+    );
+    final rxCtrl = TextEditingController(
+      text: pastVisit.consultantPrescription ?? '',
+    );
+    final notesCtrl = TextEditingController(
+      text: pastVisit.consultantNotes ?? '',
+    );
+    final nameCtrl = TextEditingController(
+      text: (pastVisit.consultantName?.isNotEmpty == true)
+          ? pastVisit.consultantName!
+          : _currentOperatorName(),
+    );
+
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (dialogCtx, setModalState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Container(
+                constraints: const BoxConstraints(
+                  maxWidth: 850,
+                  maxHeight: 750,
+                ),
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryLight,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.edit_note_rounded,
+                                color: AppTheme.primary,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Review & Revise Visit Record',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.secondary,
+                                  ),
+                                ),
+                                Text(
+                                  'Visit Date: ${pastVisit.visitDate ?? "Historical"} • Queue #${pastVisit.queueNumber ?? "-"} • Patient: ${pastVisit.patient?.name ?? "Patient"}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.slate500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            CustomBadge.fromStatus(pastVisit.status),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () => Navigator.of(dialogCtx).pop(),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Divider(),
+                    const SizedBox(height: 12),
+
+                    // Scrollable content
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: AppTheme.slate50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppTheme.slate200),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.assignment_outlined,
+                                        size: 16,
+                                        color: AppTheme.primary,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Resident Intake Details',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
+                                          color: AppTheme.secondary,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      if (pastVisit.residentName?.isNotEmpty ==
+                                          true)
+                                        Text(
+                                          'Dr. ${pastVisit.residentName}',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppTheme.slate500,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _buildHistoryRow(
+                                    'Chief Complaint:',
+                                    pastVisit.chiefComplaint,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  _buildHistoryRow(
+                                    'HPI:',
+                                    pastVisit.historyPresentIllness,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  _buildHistoryRow(
+                                    'Medical History:',
+                                    pastVisit.pastMedicalHistory,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  _buildHistoryRow(
+                                    'Drug History & Allergies:',
+                                    pastVisit.drugHistoryAllergies,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  _buildHistoryRow(
+                                    'Exam / Assessment:',
+                                    pastVisit.examinationNotes ??
+                                        pastVisit.residentAssessment,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+
+                            _buildVitalsMatrix(pastVisit),
+                            const SizedBox(height: 14),
+
+                            if (pastVisit.images.isNotEmpty) ...[
+                              _buildImageGallerySection(pastVisit),
+                              const SizedBox(height: 16),
+                            ],
+
+                            // Editable Consultant Assessment Section
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF0FDF4),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: AppTheme.successLight,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.health_and_safety_outlined,
+                                        color: AppTheme.success,
+                                        size: 18,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Consultant Assessment & Prescription (Editable)',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppTheme.secondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'Clinical Diagnosis',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  TextField(
+                                    controller: diagCtrl,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Enter clinical diagnosis...',
+                                      fillColor: Colors.white,
+                                      filled: true,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Treatment Plan',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            TextField(
+                                              controller: planCtrl,
+                                              maxLines: 3,
+                                              decoration: const InputDecoration(
+                                                hintText:
+                                                    'Management and recommendations...',
+                                                fillColor: Colors.white,
+                                                filled: true,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Prescription / Medications',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            TextField(
+                                              controller: rxCtrl,
+                                              maxLines: 3,
+                                              decoration: const InputDecoration(
+                                                hintText:
+                                                    'Prescribed medications...',
+                                                fillColor: Colors.white,
+                                                filled: true,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 2,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Special Notes / Follow-up',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            TextField(
+                                              controller: notesCtrl,
+                                              decoration: const InputDecoration(
+                                                hintText: 'Follow-up notes...',
+                                                fillColor: Colors.white,
+                                                filled: true,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Consultant Name',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            TextField(
+                                              controller: nameCtrl,
+                                              decoration: const InputDecoration(
+                                                prefixIcon: Icon(
+                                                  Icons.badge_outlined,
+                                                  size: 16,
+                                                ),
+                                                fillColor: Colors.white,
+                                                filled: true,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 12),
+
+                    // Actions
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => _printReport(pastVisit),
+                          icon: const Icon(Icons.print_rounded, size: 16),
+                          label: const Text('Print Visit PDF'),
+                        ),
+                        Row(
+                          children: [
+                            TextButton(
+                              onPressed: isSaving
+                                  ? null
+                                  : () => Navigator.of(dialogCtx).pop(),
+                              child: const Text('Cancel'),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.success,
+                              ),
+                              onPressed: isSaving
+                                  ? null
+                                  : () async {
+                                      setModalState(() => isSaving = true);
+                                      try {
+                                        final provider = context
+                                            .read<ClinicProvider>();
+                                        final revised = await provider
+                                            .reviseVisitAssessment(
+                                              visit: pastVisit,
+                                              diagnosis: diagCtrl.text,
+                                              plan: planCtrl.text,
+                                              prescription: rxCtrl.text,
+                                              notes: notesCtrl.text,
+                                              consultantName: nameCtrl.text,
+                                            );
+
+                                        if (dialogCtx.mounted) {
+                                          Navigator.of(dialogCtx).pop();
+                                        }
+
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              backgroundColor: AppTheme.success,
+                                              content: Text(
+                                                'Visit record of ${revised.visitDate ?? "past date"} updated successfully!',
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        setModalState(() => isSaving = false);
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              backgroundColor: AppTheme.danger,
+                                              content: Text(
+                                                'Error updating visit: $e',
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    },
+                              icon: isSaving
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.check_rounded, size: 16),
+                              label: const Text('Save Revised Assessment'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -154,12 +899,26 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
       _loadVisitData(selectedVisit);
     }
 
+    // Patient History & Visit Counts
+    final patientId = selectedVisit?.patientId ?? '';
+    final patientHistory = patientId.isNotEmpty
+        ? (provider.getPatientVisits(patientId) ?? [])
+        : <Visit>[];
+    final isLoadingHistory =
+        patientId.isNotEmpty && provider.isPatientVisitsLoading(patientId);
+    final totalPatientVisitsCount = patientHistory.isNotEmpty
+        ? patientHistory.length
+        : (selectedVisit != null ? 1 : 0);
+    final pastVisits = selectedVisit != null
+        ? patientHistory.where((v) => v.id != selectedVisit.id).toList()
+        : <Visit>[];
+
     return Scaffold(
       body: Container(
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            // Top Stats Banner
+            // Top Stats Banner (Only Today's Visits)
             Row(
               children: [
                 Expanded(
@@ -183,7 +942,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: StatCard(
-                    title: 'Completed Consultations',
+                    title: 'Today\'s Completed',
                     value: '${completedVisits.length}',
                     icon: Icons.task_alt_rounded,
                     color: AppTheme.success,
@@ -192,7 +951,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: StatCard(
-                    title: 'Total Clinic Visits',
+                    title: 'Today\'s Total Visits',
                     value: '${visits.length}',
                     icon: Icons.analytics_outlined,
                     color: AppTheme.primary,
@@ -274,7 +1033,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                       children: [
                                         if (readyVisits.isNotEmpty) ...[
                                           Padding(
-                                            padding: EdgeInsets.symmetric(
+                                            padding: const EdgeInsets.symmetric(
                                               vertical: 6,
                                             ),
                                             child: Text(
@@ -298,11 +1057,11 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                         if (completedVisits.isNotEmpty) ...[
                                           const SizedBox(height: 12),
                                           Padding(
-                                            padding: EdgeInsets.symmetric(
+                                            padding: const EdgeInsets.symmetric(
                                               vertical: 6,
                                             ),
                                             child: Text(
-                                              'COMPLETED VISITS',
+                                              'TODAY\'S COMPLETED VISITS',
                                               style: TextStyle(
                                                 fontSize: 11,
                                                 fontWeight: FontWeight.bold,
@@ -346,8 +1105,13 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Top Header & Print PDF Button
-                                  _buildConsultantHeaderBanner(selectedVisit),
+                                  // Top Header & Visit Count Indicator & Print PDF Button
+                                  _buildConsultantHeaderBanner(
+                                    selectedVisit,
+                                    totalPatientVisitsCount,
+                                    pastVisits,
+                                    isLoadingHistory,
+                                  ),
                                   const SizedBox(height: 20),
                                   const Divider(),
                                   const SizedBox(height: 20),
@@ -360,12 +1124,21 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                   _buildVitalsMatrix(selectedVisit),
                                   const SizedBox(height: 20),
 
-                                  // Clinical Images Gallery
+                                  // Attached Clinical Images Gallery
                                   _buildImageGallerySection(selectedVisit),
                                   const SizedBox(height: 24),
 
                                   // Consultant Clinical Decision & Prescription Section
                                   _buildConsultantDecisionForm(selectedVisit),
+                                  const SizedBox(height: 24),
+
+                                  // Patient Past Visits History Section
+                                  _buildPatientHistorySection(
+                                    selectedVisit,
+                                    pastVisits,
+                                    totalPatientVisitsCount,
+                                    isLoadingHistory,
+                                  ),
                                 ],
                               ),
                             ),
@@ -415,11 +1188,13 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                // mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     '#${visit.queueNumber ?? "1"} ${visit.patient?.name ?? "Patient"}',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
                   ),
                   CustomBadge.fromStatus(visit.status),
                 ],
@@ -450,7 +1225,12 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     );
   }
 
-  Widget _buildConsultantHeaderBanner(Visit visit) {
+  Widget _buildConsultantHeaderBanner(
+    Visit visit,
+    int totalVisitsCount,
+    List<Visit> pastVisits,
+    bool isLoadingHistory,
+  ) {
     final patient = visit.patient;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -485,6 +1265,76 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                     ),
                     const SizedBox(width: 10),
                     CustomBadge.fromStatus(visit.status),
+                    const SizedBox(width: 10),
+
+                    // Indicator of the number of visits the patient has visited
+                    Tooltip(
+                      message: totalVisitsCount > 1
+                          ? 'This patient has $totalVisitsCount total visits on record (${pastVisits.length} previous).'
+                          : 'This is the patient\'s first visit at the clinic.',
+                      child: InkWell(
+                        onTap: pastVisits.isNotEmpty
+                            ? () => _showPastVisitsDialog(
+                                visit,
+                                pastVisits,
+                                isLoadingHistory,
+                              )
+                            : null,
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: totalVisitsCount > 1
+                                ? const Color(0xFFEFF6FF)
+                                : const Color(0xFFF0FDF4),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: totalVisitsCount > 1
+                                  ? const Color(0xFF93C5FD)
+                                  : const Color(0xFF86EFAC),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                totalVisitsCount > 1
+                                    ? Icons.history_rounded
+                                    : Icons.stars_rounded,
+                                size: 14,
+                                color: totalVisitsCount > 1
+                                    ? AppTheme.primary
+                                    : AppTheme.success,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                totalVisitsCount > 1
+                                    ? '$totalVisitsCount Visits (${pastVisits.length} Past)'
+                                    : '1st Visit',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: totalVisitsCount > 1
+                                      ? AppTheme.primary
+                                      : AppTheme.success,
+                                ),
+                              ),
+                              if (totalVisitsCount > 1) ...[
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.open_in_new_rounded,
+                                  size: 11,
+                                  color: AppTheme.primary,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 3),
@@ -498,6 +1348,25 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
         ),
         Row(
           children: [
+            if (pastVisits.isNotEmpty) ...[
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.primary,
+                  side: BorderSide(
+                    color: AppTheme.primary.withValues(alpha: 0.5),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                ),
+                onPressed: () =>
+                    _showPastVisitsDialog(visit, pastVisits, isLoadingHistory),
+                icon: const Icon(Icons.history_edu_outlined, size: 18),
+                label: Text('Old Visits (${pastVisits.length})'),
+              ),
+              const SizedBox(width: 10),
+            ],
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.secondary,
@@ -856,7 +1725,6 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        // color: const Color(0xFFF0FDF4), // soft emerald tint
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppTheme.successLight),
       ),
@@ -892,7 +1760,8 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
           TextField(
             controller: _diagnosisController,
             decoration: const InputDecoration(
-              hintText: 'e.g. Acute Bronchitis, Essential Hypertension...',
+              hintText:
+                  'e.g. Male Pattern Alopecia Norwood IV, Scalp Folliculitis...',
             ),
           ),
           const SizedBox(height: 14),
@@ -918,7 +1787,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                       maxLines: 3,
                       decoration: const InputDecoration(
                         hintText:
-                            'Lifestyle advice, follow-up timeline, tests ordered...',
+                            'Lifestyle advice, surgical recommendation, follow-up timeline...',
                       ),
                     ),
                   ],
@@ -942,7 +1811,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                       maxLines: 3,
                       decoration: const InputDecoration(
                         hintText:
-                            'e.g. Amoxicillin 500mg TDS x 7 days, Paracetamol 1g PRN...',
+                            'e.g. Minoxidil 5% topical spray, Finasteride 1mg OD x 3 months...',
                       ),
                     ),
                   ],
@@ -1003,31 +1872,386 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Action Buttons
+          // Action Buttons: Routing Actions (Send Back / Send to Management) & Saving Actions
           Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              OutlinedButton.icon(
-                onPressed: provider.isLoading
-                    ? null
-                    : () => _saveAssessment(visit, markCompleted: false),
-                icon: const Icon(Icons.save_outlined, size: 16),
-                label: const Text('Save Assessment Draft'),
+              // Routing Actions (Left)
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.warning,
+                      side: BorderSide(color: AppTheme.warning),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                    ),
+                    onPressed: provider.isLoading
+                        ? null
+                        : () => _sendBackToResident(visit),
+                    icon: const Icon(Icons.undo_rounded, size: 16),
+                    label: const Text('Send Back to Resident'),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.purple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                    ),
+                    onPressed: provider.isLoading
+                        ? null
+                        : () => _sendToManagement(visit),
+                    icon: const Icon(Icons.calendar_month_rounded, size: 16),
+                    label: const Text('Send to Management'),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.success,
-                ),
-                onPressed: provider.isLoading
-                    ? null
-                    : () => _saveAssessment(visit, markCompleted: true),
-                icon: const Icon(Icons.check_circle_rounded, size: 16),
-                label: const Text('Finalize & Complete Visit'),
+
+              // Saving / Finalizing Actions (Right)
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: provider.isLoading
+                        ? null
+                        : () => _saveAssessment(visit, markCompleted: false),
+                    icon: const Icon(Icons.save_outlined, size: 16),
+                    label: const Text('Save Draft'),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.success,
+                    ),
+                    onPressed: provider.isLoading
+                        ? null
+                        : () => _saveAssessment(visit, markCompleted: true),
+                    icon: const Icon(Icons.check_circle_rounded, size: 16),
+                    label: const Text('Finalize & Complete Visit'),
+                  ),
+                ],
               ),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPatientHistorySection(
+    Visit currentVisit,
+    List<Visit> pastVisits,
+    int totalVisitsCount,
+    bool isLoadingHistory,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.slate200),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryLight,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Icon(
+                      Icons.history_edu_outlined,
+                      color: AppTheme.primary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Patient Visit History & Previous Consultations',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.secondary,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryLight,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$totalVisitsCount total visit${totalVisitsCount == 1 ? "" : "s"}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (isLoadingHistory)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(),
+          const SizedBox(height: 12),
+
+          if (pastVisits.isEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.slate50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppTheme.slate200),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    color: AppTheme.slate400,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'No previous visits found on record. This is the patient\'s first visit at the clinic.',
+                      style: TextStyle(color: AppTheme.slate700, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: pastVisits.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
+              itemBuilder: (context, idx) {
+                final pastVisit = pastVisits[idx];
+                return _buildPastVisitCard(pastVisit, isDialog: false);
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPastVisitCard(Visit pastVisit, {required bool isDialog}) {
+    final v = pastVisit.vitalSigns;
+    final hasVitals = !v.isEmpty;
+    final hasDiagnosis = pastVisit.consultantDiagnosis?.isNotEmpty == true;
+    final hasPrescription =
+        pastVisit.consultantPrescription?.isNotEmpty == true;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.slate50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.slate200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Date: ${pastVisit.visitDate ?? "Historical"}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (pastVisit.queueNumber != null) ...[
+                    Text(
+                      'Queue #${pastVisit.queueNumber}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.slate700,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  CustomBadge.fromStatus(pastVisit.status),
+                ],
+              ),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      textStyle: const TextStyle(fontSize: 12),
+                    ),
+                    onPressed: () => _printReport(pastVisit),
+                    icon: const Icon(Icons.print_outlined, size: 14),
+                    label: const Text('Print Report'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      foregroundColor: AppTheme.onPrimary,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      textStyle: const TextStyle(fontSize: 12),
+                    ),
+                    onPressed: () => _showPastVisitReviseDialog(pastVisit),
+                    icon: const Icon(Icons.edit_note_rounded, size: 16),
+                    label: const Text('View & Revise Record'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Divider(height: 1),
+          const SizedBox(height: 10),
+
+          if (pastVisit.chiefComplaint?.isNotEmpty == true) ...[
+            _buildHistoryRow('Chief Complaint:', pastVisit.chiefComplaint),
+            const SizedBox(height: 6),
+          ],
+          if (pastVisit.examinationNotes?.isNotEmpty == true ||
+              pastVisit.residentAssessment?.isNotEmpty == true) ...[
+            _buildHistoryRow(
+              'Resident Notes:',
+              pastVisit.examinationNotes ?? pastVisit.residentAssessment,
+            ),
+            const SizedBox(height: 6),
+          ],
+
+          if (hasDiagnosis) ...[
+            _buildHistoryRow(
+              'Consultant Diagnosis:',
+              pastVisit.consultantDiagnosis,
+            ),
+            const SizedBox(height: 6),
+          ],
+          if (hasPrescription) ...[
+            _buildHistoryRow(
+              'Past Prescription:',
+              pastVisit.consultantPrescription,
+            ),
+            const SizedBox(height: 6),
+          ],
+          if (pastVisit.consultantPlan?.isNotEmpty == true) ...[
+            _buildHistoryRow('Management Plan:', pastVisit.consultantPlan),
+            const SizedBox(height: 6),
+          ],
+
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 12,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (hasVitals) ...[
+                if (v.bloodPressure != null)
+                  _buildMiniVitalChip('BP', v.bloodPressure!),
+                if (v.heartRate != null)
+                  _buildMiniVitalChip('HR', '${v.heartRate} bpm'),
+                if (v.temperature != null)
+                  _buildMiniVitalChip('Temp', '${v.temperature}°C'),
+                if (v.weight != null)
+                  _buildMiniVitalChip('Weight', '${v.weight} kg'),
+              ],
+              if (pastVisit.images.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryLight,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.photo_library_outlined,
+                        size: 13,
+                        color: AppTheme.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${pastVisit.images.length} Attached Scans',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniVitalChip(String label, String val) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: AppTheme.slate200),
+      ),
+      child: Text(
+        '$label: $val',
+        style: TextStyle(
+          fontSize: 11,
+          color: AppTheme.slate700,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }
