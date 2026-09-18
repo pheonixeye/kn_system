@@ -8,6 +8,7 @@ import 'providers/clinic_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/shell/main_navigation_screen.dart';
+import 'widgets/notification_overlay.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,6 +48,11 @@ class MyApp extends StatelessWidget {
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
             themeMode: theme.mode,
+            builder: auth.isAuthenticated
+                ? (context, child) => NotificationOverlay(
+                    child: child ?? const SizedBox.shrink(),
+                  )
+                : null,
             home: auth.isAuthenticated
                 ? const MainNavigationScreen()
                 : const LoginScreen(),
@@ -57,6 +63,7 @@ class MyApp extends StatelessWidget {
           return ChangeNotifierProvider<ClinicProvider>(
             create: (_) => ClinicProvider(
               currentUserId: auth.currentUser?.id,
+              currentUserType: auth.currentUser?.type.value,
             )..initialize(),
             child: app,
           );

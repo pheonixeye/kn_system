@@ -11,8 +11,8 @@ class StagedImageFile {
 
   StagedImageFile({required this.name, required this.bytes});
 
-  http.MultipartFile toMultipartFile() {
-    return http.MultipartFile.fromBytes('images', bytes, filename: name);
+  http.MultipartFile toMultipartFile({String field = 'images'}) {
+    return http.MultipartFile.fromBytes(field, bytes, filename: name);
   }
 }
 
@@ -23,6 +23,15 @@ class ImageDropzone extends StatefulWidget {
   final Function(List<StagedImageFile> stagedFiles)? onFilesChanged;
   final bool readOnly;
 
+  /// Header label, e.g. "Clinical Investigations & Images".
+  final String title;
+
+  /// Helper text shown under the drop zone.
+  final String subtitle;
+
+  /// Allowed file extensions passed to the picker.
+  final List<String> acceptedExtensions;
+
   const ImageDropzone({
     super.key,
     this.existingImages = const [],
@@ -30,6 +39,18 @@ class ImageDropzone extends StatefulWidget {
     this.onDeleteExistingImage,
     this.onFilesChanged,
     this.readOnly = false,
+    this.title = 'Clinical Investigations & Images',
+    this.subtitle =
+        'Supports PNG, JPG, WEBP, Scans, Lab Results & PDFs (up to 50MB each)',
+    this.acceptedExtensions = const [
+      'jpg',
+      'jpeg',
+      'png',
+      'webp',
+      'gif',
+      'bmp',
+      'pdf',
+    ],
   });
 
   @override
@@ -55,7 +76,7 @@ class ImageDropzoneState extends State<ImageDropzone> {
       final result = await FilePicker.pickFiles(
         // allowMultiple: true,
         type: FileType.custom,
-        allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'pdf'],
+        allowedExtensions: widget.acceptedExtensions,
         // withData: true,
       );
 
@@ -108,7 +129,7 @@ class ImageDropzoneState extends State<ImageDropzone> {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  'Clinical Investigations & Images',
+                  widget.title,
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -204,7 +225,7 @@ class ImageDropzoneState extends State<ImageDropzone> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Supports PNG, JPG, WEBP, Scans, Lab Results & PDFs (up to 50MB each)',
+                      widget.subtitle,
                       style: TextStyle(fontSize: 11, color: AppTheme.slate400),
                     ),
                   ],

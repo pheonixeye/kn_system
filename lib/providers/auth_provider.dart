@@ -65,6 +65,10 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> requestPasswordReset(String email) async {
+    await _pb.requestPasswordReset(email);
+  }
+
   String? _error;
   String? get errorMessage {
     final e = _error;

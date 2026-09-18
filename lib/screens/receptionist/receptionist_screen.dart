@@ -6,6 +6,8 @@ import '../../core/theme/app_theme.dart';
 import '../../models/patient.dart';
 import '../../providers/clinic_provider.dart';
 import '../../widgets/active_queue_view.dart';
+import '../../widgets/patient_operations_dialog.dart';
+import '../../widgets/patient_visits_dialog.dart';
 import '../../widgets/stat_card.dart';
 import 'active_queue_screen.dart';
 
@@ -1021,6 +1023,34 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              IconButton(
+                tooltip: 'Previous Visits',
+                icon: Icon(
+                  Icons.history_rounded,
+                  size: 18,
+                  color: AppTheme.accent,
+                ),
+                onPressed: () => PatientVisitsDialog.show(
+                  context,
+                  patientId: patient.id,
+                  patientName: patient.name,
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: 'Patient Operations',
+                icon: Icon(
+                  Icons.local_hospital_outlined,
+                  size: 18,
+                  color: AppTheme.secondary,
+                ),
+                onPressed: () => PatientOperationsDialog.show(
+                  context,
+                  patientId: patient.id,
+                  patientName: patient.name,
+                ),
+              ),
+              const SizedBox(width: 4),
               IconButton(
                 tooltip: 'Edit Patient',
                 icon: Icon(

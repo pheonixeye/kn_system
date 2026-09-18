@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/services/pdf_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/operation.dart';
 import '../../models/patient.dart';
@@ -463,25 +464,55 @@ class _ManagementScreenState extends State<ManagementScreen> {
           const SizedBox(width: 12),
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: referrals.take(3).map((v) {
               final pat = v.patient;
-              return ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.purple,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.purple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      textStyle: const TextStyle(fontSize: 11),
+                    ),
+                    onPressed: () {
+                      if (pat != null) {
+                        _resetForm(preselectedPatient: pat, date: _selectedDate);
+                      }
+                    },
+                    icon: const Icon(Icons.add_task_rounded, size: 14),
+                    label: Text('Book ${pat?.name.split(" ").first ?? "Patient"}'),
                   ),
-                  textStyle: const TextStyle(fontSize: 11),
-                ),
-                onPressed: () {
-                  if (pat != null) {
-                    _resetForm(preselectedPatient: pat, date: _selectedDate);
-                  }
-                },
-                icon: const Icon(Icons.add_task_rounded, size: 14),
-                label: Text('Book ${pat?.name.split(" ").first ?? "Patient"}'),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: 'Print Visit PDF',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () async {
+                      try {
+                        await PdfService.printVisitReport(v);
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: AppTheme.danger,
+                              content: Text('Error printing visit PDF: $e'),
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    icon: Icon(
+                      Icons.print_outlined,
+                      size: 18,
+                      color: AppTheme.purple,
+                    ),
+                  ),
+                ],
               );
             }).toList(),
           ),
@@ -862,7 +893,7 @@ class _ManagementScreenState extends State<ManagementScreen> {
           )
         else
           SizedBox(
-            height: 90,
+            height: 108,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: dayOps.length,
@@ -909,6 +940,31 @@ class _ManagementScreenState extends State<ManagementScreen> {
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
                               icon: Icon(
+                                Icons.print_outlined,
+                                size: 16,
+                                color: AppTheme.primary,
+                              ),
+                              onPressed: () async {
+                                try {
+                                  await PdfService.printOperationReport(op);
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        backgroundColor: AppTheme.danger,
+                                        content: Text(
+                                          'Error printing operation PDF: $e',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                            ),
+                            IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              icon: Icon(
                                 Icons.delete_outline_rounded,
                                 size: 16,
                                 color: AppTheme.danger,
@@ -944,6 +1000,28 @@ class _ManagementScreenState extends State<ManagementScreen> {
                                 fontSize: 10,
                                 color: AppTheme.success,
                                 fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.person_outline,
+                              size: 11,
+                              color: AppTheme.slate400,
+                            ),
+                            const SizedBox(width: 3),
+                            Expanded(
+                              child: Text(
+                                'Added by ${op.addedByLabel}',
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  color: AppTheme.slate500,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
@@ -1261,121 +1339,80 @@ class _ManagementScreenState extends State<ManagementScreen> {
         const SizedBox(height: 14),
 
         // Financial Fields: Total Price, Deposit, Remaining at Operation
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppTheme.slate50,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppTheme.slate200),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.payments_outlined,
-                    size: 16,
-                    color: AppTheme.success,
+                  const Text(
+                    'Total Price',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Operation Financials (EGP)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.secondary,
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _totalPriceController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. 25000',
+                      prefixIcon: Icon(Icons.payments_outlined, size: 16),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              Row(
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Total Price',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          controller: _totalPriceController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            hintText: '0',
-                            fillColor: Colors.white,
-                            filled: true,
-                          ),
-                        ),
-                      ],
-                    ),
+                  const Text(
+                    'Deposit Paid',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Deposit Paid',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          controller: _depositController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            hintText: '0',
-                            fillColor: Colors.white,
-                            filled: true,
-                          ),
-                        ),
-                      ],
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _depositController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Remaining',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          controller: _remainingController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            hintText: '0',
-                            fillColor: Colors.white,
-                            filled: true,
-                          ),
-                        ),
-                      ],
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. 5000',
+                      prefixIcon: Icon(Icons.savings_outlined, size: 16),
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Remaining',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _remainingController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. 20000',
+                      prefixIcon: Icon(
+                        Icons.account_balance_wallet_outlined,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 20),
 

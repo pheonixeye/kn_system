@@ -20,6 +20,7 @@ class Visit extends Equatable {
   final String? residentAssessment;
   final String? residentName;
   final List<String> images;
+  final List<String> prescriptionImages;
   final String? consultantDiagnosis;
   final String? consultantPlan;
   final String? consultantPrescription;
@@ -45,6 +46,7 @@ class Visit extends Equatable {
     this.residentAssessment,
     this.residentName,
     this.images = const [],
+    this.prescriptionImages = const [],
     this.consultantDiagnosis,
     this.consultantPlan,
     this.consultantPrescription,
@@ -80,6 +82,8 @@ class Visit extends Equatable {
     }
 
     final rawImages = record.getListValue<String>('images');
+    final rawPrescriptionImages =
+        record.getListValue<String>('prescription_images');
 
     return Visit(
       id: record.id,
@@ -101,6 +105,7 @@ class Visit extends Equatable {
       residentAssessment: record.getStringValue('resident_assessment'),
       residentName: record.getStringValue('resident_name'),
       images: rawImages,
+      prescriptionImages: rawPrescriptionImages,
       consultantDiagnosis: record.getStringValue('consultant_diagnosis'),
       consultantPlan: record.getStringValue('consultant_plan'),
       consultantPrescription: record.getStringValue('consultant_prescription'),
@@ -156,6 +161,7 @@ class Visit extends Equatable {
     String? residentAssessment,
     String? residentName,
     List<String>? images,
+    List<String>? prescriptionImages,
     String? consultantDiagnosis,
     String? consultantPlan,
     String? consultantPrescription,
@@ -182,6 +188,7 @@ class Visit extends Equatable {
       residentAssessment: residentAssessment ?? this.residentAssessment,
       residentName: residentName ?? this.residentName,
       images: images ?? this.images,
+      prescriptionImages: prescriptionImages ?? this.prescriptionImages,
       consultantDiagnosis: consultantDiagnosis ?? this.consultantDiagnosis,
       consultantPlan: consultantPlan ?? this.consultantPlan,
       consultantPrescription:
@@ -211,6 +218,7 @@ class Visit extends Equatable {
     residentAssessment,
     residentName,
     images,
+    prescriptionImages,
     consultantDiagnosis,
     consultantPlan,
     consultantPrescription,

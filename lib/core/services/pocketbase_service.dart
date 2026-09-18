@@ -1,6 +1,7 @@
 import 'package:http/http.dart' as http;
 import 'package:pocketbase/pocketbase.dart';
 import '../constants/app_constants.dart';
+import '../../models/notification.dart';
 import '../../models/operation.dart';
 import '../../models/patient.dart';
 import '../../models/user.dart';
@@ -30,6 +31,14 @@ class PocketBaseService {
 
   void logout() {
     pb.authStore.clear();
+  }
+
+  Future<void> requestPasswordReset(String email) async {
+    // PocketBase returns 204 even when the account does not exist, so this
+    // never leaks whether an email is registered.
+    await pb
+        .collection(AppConstants.usersCollection)
+        .requestPasswordReset(email.trim());
   }
 
   void restoreAuth(String token, Map<String, dynamic> recordJson) {
@@ -209,6 +218,42 @@ class PocketBaseService {
     }
   }
 
+  Future<Visit> addVisitPrescriptionImages(
+    String visitId,
+    List<http.MultipartFile> files,
+  ) async {
+    try {
+      final record = await pb
+          .collection(AppConstants.visitsCollection)
+          .update(visitId, body: const {}, files: files, expand: 'patient');
+      return Visit.fromRecord(record);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Visit> removeVisitPrescriptionImage(
+    String visitId,
+    String filename,
+    List<String> remainingPrescriptionImages,
+  ) async {
+    try {
+      final record = await pb
+          .collection(AppConstants.visitsCollection)
+          .update(
+            visitId,
+            body: {
+              AppConstants.visitPrescriptionImagesField:
+                  remainingPrescriptionImages,
+            },
+            expand: 'patient',
+          );
+      return Visit.fromRecord(record);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   // Operations API
   Future<List<Operation>> getOperations({
     String? patientId,
@@ -234,7 +279,7 @@ class PocketBaseService {
       final records = await pb
           .collection(AppConstants.operationsCollection)
           .getFullList(
-            expand: 'patient',
+            expand: 'patient,added_by',
             sort: sort ?? '-date_time,-created',
             filter: filterString,
           );
@@ -252,7 +297,7 @@ class PocketBaseService {
     try {
       final record = await pb
           .collection(AppConstants.operationsCollection)
-          .create(body: body, files: files ?? [], expand: 'patient');
+          .create(body: body, files: files ?? [], expand: 'patient,added_by');
       return Operation.fromRecord(record);
     } catch (e) {
       rethrow;
@@ -267,7 +312,12 @@ class PocketBaseService {
     try {
       final record = await pb
           .collection(AppConstants.operationsCollection)
-          .update(id, body: body, files: files ?? [], expand: 'patient');
+          .update(
+            id,
+            body: body,
+            files: files ?? [],
+            expand: 'patient,added_by',
+          );
       return Operation.fromRecord(record);
     } catch (e) {
       rethrow;
@@ -283,14 +333,74 @@ class PocketBaseService {
     }
   }
 
+  // Notifications API
+  Future<List<AppNotification>> getNotifications({
+    String? target,
+    String? filter,
+    int perPage = 100,
+  }) async {
+    try {
+      final filters = <String>[];
+      if (target != null && target.isNotEmpty) {
+        filters.add('target = "$target"');
+      }
+      if (filter != null && filter.trim().isNotEmpty) {
+        filters.add(filter);
+      }
+      final filterString = filters.isNotEmpty ? filters.join(' && ') : null;
+
+      final records = await pb
+          .collection(AppConstants.notificationsCollection)
+          .getFullList(
+            sort: '-created',
+            filter: filterString,
+          );
+
+      // Best-effort pagination for larger histories.
+      final all = records.map((r) => AppNotification.fromRecord(r)).toList();
+      return all.take(perPage).toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<AppNotification> createNotification(
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      final record = await pb
+          .collection(AppConstants.notificationsCollection)
+          .create(body: data);
+      return AppNotification.fromRecord(record);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<AppNotification> markNotificationRead(
+    String id,
+    List<String> readBy,
+  ) async {
+    try {
+      final record = await pb
+          .collection(AppConstants.notificationsCollection)
+          .update(id, body: {'read_by': readBy});
+      return AppNotification.fromRecord(record);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   // Real-time Subscriptions
   bool _visitsSubscribed = false;
   bool _patientsSubscribed = false;
   bool _operationsSubscribed = false;
+  bool _notificationsSubscribed = false;
 
   bool get visitsSubscribed => _visitsSubscribed;
   bool get patientsSubscribed => _patientsSubscribed;
   bool get operationsSubscribed => _operationsSubscribed;
+  bool get notificationsSubscribed => _notificationsSubscribed;
 
   Future<void> subscribeToVisits(
     void Function(RecordSubscriptionEvent) onEvent,
@@ -355,6 +465,30 @@ class PocketBaseService {
     _operationsSubscribed = false;
     try {
       await pb.collection(AppConstants.operationsCollection).unsubscribe('*');
+    } catch (_) {}
+  }
+
+  Future<void> subscribeToNotifications(
+    void Function(RecordSubscriptionEvent) onEvent,
+  ) async {
+    if (_notificationsSubscribed) return;
+    _notificationsSubscribed = true;
+    try {
+      await pb
+          .collection(AppConstants.notificationsCollection)
+          .subscribe('*', onEvent);
+    } catch (_) {
+    } finally {
+      _notificationsSubscribed = false;
+    }
+  }
+
+  Future<void> unsubscribeFromNotifications() async {
+    _notificationsSubscribed = false;
+    try {
+      await pb
+          .collection(AppConstants.notificationsCollection)
+          .unsubscribe('*');
     } catch (_) {}
   }
 }

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import '../core/constants/app_constants.dart';
 import '../core/services/pocketbase_service.dart';
+import '../models/notification.dart';
 import '../models/operation.dart';
 import '../models/patient.dart';
 import '../models/visit.dart';
@@ -11,12 +14,16 @@ import '../models/vital_signs.dart';
 class ClinicProvider extends ChangeNotifier {
   final PocketBaseService _pbService = PocketBaseService();
   final String? currentUserId;
+  final String? currentUserType;
 
   List<Patient> _patients = [];
   List<Visit> _visits = [];
   List<Operation> _operations = [];
+  List<AppNotification> _notifications = [];
   final Map<String, List<Visit>> _patientVisits = {};
   final Set<String> _loadingPatientVisits = {};
+  final StreamController<AppNotification> _incomingNotifications =
+      StreamController<AppNotification>.broadcast();
 
   Visit? _selectedVisit;
   Patient? _selectedPatient;
@@ -25,7 +32,7 @@ class ClinicProvider extends ChangeNotifier {
   String _searchQuery = '';
   String _statusFilter = 'all';
 
-  ClinicProvider({this.currentUserId}) {
+  ClinicProvider({this.currentUserId, this.currentUserType}) {
     // initialize on creation
   }
 
@@ -33,6 +40,12 @@ class ClinicProvider extends ChangeNotifier {
   List<Patient> get patients => _patients;
   List<Visit> get visits => _visits;
   List<Operation> get operations => _operations;
+  List<AppNotification> get notifications => _notifications;
+
+  /// Emits only notifications that arrive live via realtime, so UI can show
+  /// transient toasts without replaying the existing backlog.
+  Stream<AppNotification> get incomingNotifications =>
+      _incomingNotifications.stream;
   Visit? get selectedVisit => _selectedVisit;
   Patient? get selectedPatient => _selectedPatient;
   bool get isLoading => _isLoading;
@@ -42,7 +55,20 @@ class ClinicProvider extends ChangeNotifier {
   bool get realtimeConnected =>
       _pbService.visitsSubscribed ||
       _pbService.patientsSubscribed ||
-      _pbService.operationsSubscribed;
+      _pbService.operationsSubscribed ||
+      _pbService.notificationsSubscribed;
+
+  int get unreadNotificationCount {
+    if (currentUserId == null) return 0;
+    return _notifications
+        .where((n) => !n.isReadBy(currentUserId!))
+        .length;
+  }
+
+  List<Operation> getPatientOperations(String patientId) {
+    if (patientId.isEmpty) return [];
+    return _operations.where((o) => o.patientId == patientId).toList();
+  }
 
   List<Visit> get waitingResidentVisits => _visits
       .where(
@@ -87,11 +113,13 @@ class ClinicProvider extends ChangeNotifier {
         _pbService.getPatients(),
         _pbService.getVisits(),
         _pbService.getOperations(),
+        _pbService.getNotifications(target: currentUserType ?? ''),
       ]);
 
       _patients = results[0] as List<Patient>;
       _visits = results[1] as List<Visit>;
       _operations = results[2] as List<Operation>;
+      _notifications = results[3] as List<AppNotification>;
 
       // Keep selected visit updated
       if (_selectedVisit != null) {
@@ -237,7 +265,16 @@ class ClinicProvider extends ChangeNotifier {
         final patient = _patients
             .where((p) => p.id == newOp.patientId)
             .firstOrNull;
-        final fullOp = newOp.copyWith(patient: patient);
+        final existingIndex = _operations.indexWhere((o) => o.id == newOp.id);
+        final existing = existingIndex != -1
+            ? _operations[existingIndex]
+            : null;
+        final fullOp = newOp.copyWith(
+          patient: patient ?? existing?.patient,
+          addedBy: newOp.addedBy ?? existing?.addedBy,
+          addedById: newOp.addedById ?? existing?.addedById,
+        );
+        _operations.removeWhere((o) => o.id == fullOp.id);
         _operations.insert(0, fullOp);
         notifyListeners();
       } else if (action == 'update') {
@@ -245,9 +282,15 @@ class ClinicProvider extends ChangeNotifier {
         final patient = _patients
             .where((p) => p.id == updatedOp.patientId)
             .firstOrNull;
-        final fullOp = updatedOp.copyWith(patient: patient);
 
         final index = _operations.indexWhere((o) => o.id == updatedOp.id);
+        final existing = index != -1 ? _operations[index] : null;
+        final fullOp = updatedOp.copyWith(
+          patient: patient ?? existing?.patient,
+          addedBy: updatedOp.addedBy ?? existing?.addedBy,
+          addedById: updatedOp.addedById ?? existing?.addedById,
+        );
+
         if (index != -1) {
           _operations[index] = fullOp;
         } else {
@@ -260,6 +303,36 @@ class ClinicProvider extends ChangeNotifier {
         notifyListeners();
       }
     });
+
+    _pbService.subscribeToNotifications((event) {
+      final action = event.action;
+      final record = event.record;
+      if (record == null) return;
+
+      final notification = AppNotification.fromRecord(record);
+      if (!_isRelevantNotification(notification)) return;
+
+      if (action == 'create') {
+        _notifications.insert(0, notification);
+        if (!_incomingNotifications.isClosed) {
+          _incomingNotifications.add(notification);
+        }
+        notifyListeners();
+      } else if (action == 'update') {
+        final index = _notifications.indexWhere((n) => n.id == notification.id);
+        if (index != -1) {
+          _notifications[index] = notification;
+        } else {
+          _notifications.insert(0, notification);
+        }
+        notifyListeners();
+      }
+    });
+  }
+
+  bool _isRelevantNotification(AppNotification notification) {
+    if (currentUserType == null || currentUserType!.isEmpty) return false;
+    return notification.target == currentUserType;
   }
 
   void setSearchQuery(String q) {
@@ -640,6 +713,85 @@ class ClinicProvider extends ChangeNotifier {
   }
 
   // Consultant Actions
+  Future<void> addVisitPrescriptionImages(
+    Visit visit,
+    List<http.MultipartFile> files, {
+    String? consultantName,
+  }) async {
+    if (files.isEmpty) return;
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final updated = await _pbService.addVisitPrescriptionImages(
+        visit.id,
+        files,
+      );
+      final fullVisit = updated.copyWith(patient: visit.patient);
+      _updateVisitInList(fullVisit);
+      _selectedVisit = fullVisit;
+
+      if (_patientVisits.containsKey(visit.patientId)) {
+        final pIdx = _patientVisits[visit.patientId]!.indexWhere(
+          (v) => v.id == visit.id,
+        );
+        if (pIdx != -1) {
+          _patientVisits[visit.patientId]![pIdx] = fullVisit;
+        }
+      }
+
+      _notify(
+        targets: const [AppConstants.userTypeResident],
+        type: AppConstants.notifTypePrescriptionAdded,
+        title: 'New Prescription Available',
+        body:
+            '${fullVisit.patient?.name ?? "A patient"} (Queue #${fullVisit.queueNumber ?? "-"}) has a new prescription attachment from ${consultantName?.isNotEmpty == true ? consultantName : "the consultant"}.',
+        visitId: fullVisit.id,
+        patientId: fullVisit.patientId,
+        patientName: fullVisit.patient?.name,
+        senderName: consultantName,
+      );
+
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to attach prescription image: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> deleteVisitPrescriptionImage(
+    Visit visit,
+    String filename,
+  ) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final remaining = List<String>.from(visit.prescriptionImages)
+        ..remove(filename);
+      final updated = await _pbService.removeVisitPrescriptionImage(
+        visit.id,
+        filename,
+        remaining,
+      );
+      final fullVisit = updated.copyWith(patient: visit.patient);
+      _updateVisitInList(fullVisit);
+      _selectedVisit = fullVisit;
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to remove prescription image: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  // Consultant Actions
   Future<void> acceptPatientByConsultant(
     Visit visit, {
     String consultantName = 'Consultant',
@@ -754,6 +906,19 @@ class ClinicProvider extends ChangeNotifier {
         }
       }
 
+      _notify(
+        targets: const [AppConstants.userTypeResident],
+        type: AppConstants.notifTypePatientSentBack,
+        title: 'Patient Sent Back by Consultant',
+        body:
+            '${fullVisit.patient?.name ?? "A patient"} (Queue #${fullVisit.queueNumber ?? "-"}) was sent back to the resident with consultant notes.'
+            '${notes != null && notes.trim().isNotEmpty ? " Note: ${notes.trim()}" : ""}',
+        visitId: fullVisit.id,
+        patientId: fullVisit.patientId,
+        patientName: fullVisit.patient?.name,
+        senderName: consultantName,
+      );
+
       _isLoading = false;
       notifyListeners();
       return fullVisit;
@@ -803,6 +968,18 @@ class ClinicProvider extends ChangeNotifier {
           _patientVisits[visit.patientId]![pIdx] = fullVisit;
         }
       }
+
+      _notify(
+        targets: const [AppConstants.userTypeManager],
+        type: AppConstants.notifTypeReferredToManagement,
+        title: 'Patient Referred for Operation',
+        body:
+            '${fullVisit.patient?.name ?? "A patient"} (Queue #${fullVisit.queueNumber ?? "-"}) was referred to management for operation scheduling by ${consultantName?.isNotEmpty == true ? consultantName : "the consultant"}.',
+        visitId: fullVisit.id,
+        patientId: fullVisit.patientId,
+        patientName: fullVisit.patient?.name,
+        senderName: consultantName,
+      );
 
       _isLoading = false;
       notifyListeners();
@@ -866,6 +1043,66 @@ class ClinicProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _notify({
+    required List<String> targets,
+    required String type,
+    required String title,
+    required String body,
+    String? visitId,
+    String? operationId,
+    String? patientId,
+    String? patientName,
+    String? senderName,
+  }) async {
+    for (final target in targets.toSet()) {
+      try {
+        await _pbService.createNotification({
+          'target': target,
+          'type': type,
+          'title': title,
+          'body': body,
+          if (visitId != null && visitId.isNotEmpty) 'visit_id': visitId,
+          if (operationId != null && operationId.isNotEmpty)
+            'operation_id': operationId,
+          if (patientId != null && patientId.isNotEmpty)
+            'patient_id': patientId,
+          if (patientName != null && patientName.isNotEmpty)
+            'patient_name': patientName,
+          if (senderName != null && senderName.isNotEmpty)
+            'sender_name': senderName,
+        });
+      } catch (e) {
+        debugPrint('Failed to create notification for $target: $e');
+      }
+    }
+  }
+
+  Future<void> markNotificationRead(AppNotification notification) async {
+    if (currentUserId == null) return;
+    if (notification.isReadBy(currentUserId!)) return;
+
+    final readBy = [...notification.readBy, currentUserId!];
+    try {
+      final updated = await _pbService.markNotificationRead(notification.id, readBy);
+      final idx = _notifications.indexWhere((n) => n.id == notification.id);
+      if (idx != -1) {
+        _notifications[idx] = updated;
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Failed to mark notification as read: $e');
+    }
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    final unread = _notifications
+        .where((n) => currentUserId != null && !n.isReadBy(currentUserId!))
+        .toList();
+    for (final n in unread) {
+      await markNotificationRead(n);
+    }
+  }
+
   // Operations Management Actions
   Future<Operation> scheduleOperation({
     required String patientId,
@@ -875,6 +1112,7 @@ class ClinicProvider extends ChangeNotifier {
     double? totalPrice,
     double? deposit,
     double? remainingAtOperation,
+    String? notifyTarget,
   }) async {
     _isLoading = true;
     _errorMessage = null;
@@ -885,6 +1123,9 @@ class ClinicProvider extends ChangeNotifier {
         'patient': patientId,
         'date_time': dateTime.toUtc().toIso8601String(),
       };
+      if (currentUserId != null && currentUserId!.isNotEmpty) {
+        body['added_by'] = currentUserId;
+      }
       if (graftsExpected != null) body['grafts_expected'] = graftsExpected;
       if (graftsDone != null) body['grafts_done'] = graftsDone;
       if (totalPrice != null) body['total_price'] = totalPrice;
@@ -898,6 +1139,26 @@ class ClinicProvider extends ChangeNotifier {
       final fullOp = created.copyWith(patient: patient);
 
       _operations.insert(0, fullOp);
+
+      final notifyTargets = <String>[
+        AppConstants.userTypeConsultant,
+        AppConstants.userTypeReceptionist,
+      ];
+      if (notifyTarget != null) {
+        notifyTargets.add(notifyTarget);
+      }
+
+      _notify(
+        targets: notifyTargets,
+        type: AppConstants.notifTypeOperationScheduled,
+        title: 'New Operation Scheduled',
+        body:
+            'A new operation is booked for ${fullOp.patient?.name ?? "a patient"} on ${_formatOpDateTime(fullOp.dateTime)}.',
+        operationId: fullOp.id,
+        patientId: fullOp.patientId,
+        patientName: fullOp.patient?.name,
+      );
+
       _isLoading = false;
       notifyListeners();
       return fullOp;
@@ -952,6 +1213,20 @@ class ClinicProvider extends ChangeNotifier {
         _operations.insert(0, fullOp);
       }
 
+      _notify(
+        targets: const [
+          AppConstants.userTypeConsultant,
+          AppConstants.userTypeReceptionist,
+        ],
+        type: AppConstants.notifTypeOperationUpdated,
+        title: 'Operation Schedule Updated',
+        body:
+            'The operation for ${fullOp.patient?.name ?? "a patient"} was updated (${_formatOpDateTime(fullOp.dateTime)}).',
+        operationId: fullOp.id,
+        patientId: fullOp.patientId,
+        patientName: fullOp.patient?.name,
+      );
+
       _isLoading = false;
       notifyListeners();
       return fullOp;
@@ -981,6 +1256,90 @@ class ClinicProvider extends ChangeNotifier {
     }
   }
 
+  Future<Operation> addOperationImages(
+    Operation operation,
+    List<http.MultipartFile> files,
+  ) async {
+    if (files.isEmpty) return operation;
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final updated = await _pbService.updateOperation(
+        id: operation.id,
+        body: const {},
+        files: files,
+      );
+      final fullOp = updated.copyWith(patient: operation.patient);
+      _upsertOperation(fullOp);
+
+      _notify(
+        targets: const [AppConstants.userTypeManager],
+        type: AppConstants.notifTypeOperationImagesAdded,
+        title: 'Intra-Operative Images Added',
+        body:
+            '${fullOp.patient?.name ?? "A patient"}\'s operation now has ${fullOp.intraOpImages.length} intra-operative image(s) recorded.',
+        operationId: fullOp.id,
+        patientId: fullOp.patientId,
+        patientName: fullOp.patient?.name,
+      );
+
+      _isLoading = false;
+      notifyListeners();
+      return fullOp;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to add operation images: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<Operation> removeOperationImage(
+    Operation operation,
+    String filename,
+  ) async {
+    if (!operation.intraOpImages.contains(filename)) return operation;
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final remaining = List<String>.from(operation.intraOpImages)
+        ..remove(filename);
+      final updated = await _pbService.updateOperation(
+        id: operation.id,
+        body: {'intra_op_images': remaining},
+      );
+      final fullOp = updated.copyWith(patient: operation.patient);
+      _upsertOperation(fullOp);
+
+      _isLoading = false;
+      notifyListeners();
+      return fullOp;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to remove operation image: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  void _upsertOperation(Operation updatedOp) {
+    final idx = _operations.indexWhere((o) => o.id == updatedOp.id);
+    if (idx != -1) {
+      _operations[idx] = updatedOp;
+    } else {
+      _operations.insert(0, updatedOp);
+    }
+  }
+
+  String _formatOpDateTime(DateTime? dt) {
+    if (dt == null) return 'an unset date';
+    return DateFormat('yyyy-MM-dd HH:mm').format(dt);
+  }
+
   void _updateVisitInList(Visit updatedVisit) {
     final idx = _visits.indexWhere((v) => v.id == updatedVisit.id);
     if (idx != -1) {
@@ -995,6 +1354,8 @@ class ClinicProvider extends ChangeNotifier {
     _pbService.unsubscribeFromVisits();
     _pbService.unsubscribeFromPatients();
     _pbService.unsubscribeFromOperations();
+    _pbService.unsubscribeFromNotifications();
+    _incomingNotifications.close();
     super.dispose();
   }
 }

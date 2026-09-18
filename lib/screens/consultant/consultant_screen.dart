@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
@@ -7,7 +8,10 @@ import '../../models/visit.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/clinic_provider.dart';
 import '../../widgets/custom_badge.dart';
+import '../../widgets/image_dropzone.dart';
 import '../../widgets/image_viewer_dialog.dart';
+import '../../widgets/operation_booking_dialog.dart';
+import '../../widgets/operations_calendar_widget.dart';
 import '../../widgets/stat_card.dart';
 
 class ConsultantScreen extends StatefulWidget {
@@ -28,6 +32,9 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
 
   String? _currentLoadedVisitId;
   bool _isGeneratingPdf = false;
+  bool _showOperationsCalendar = false;
+  List<StagedImageFile> _stagedPrescriptionFiles = [];
+  bool _isUploadingPrescription = false;
 
   @override
   void dispose() {
@@ -287,6 +294,462 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     } finally {
       if (mounted) setState(() => _isGeneratingPdf = false);
     }
+  }
+
+  Future<void> _pickPrescriptionImages() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'],
+      );
+      if (result.isNotEmpty) {
+        final newFiles = <StagedImageFile>[];
+        for (final file in result) {
+          final bytes = await file.readAsBytes();
+          if (bytes.isNotEmpty) {
+            newFiles.add(StagedImageFile(name: file.name, bytes: bytes));
+          }
+        }
+        if (newFiles.isNotEmpty && mounted) {
+          setState(() {
+            _stagedPrescriptionFiles = [
+              ..._stagedPrescriptionFiles,
+              ...newFiles,
+            ];
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error picking prescription file: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _attachPrescriptionImage(Visit visit) async {
+    if (_stagedPrescriptionFiles.isEmpty) return;
+    final provider = context.read<ClinicProvider>();
+    final consultantName = _currentOperatorName();
+    setState(() => _isUploadingPrescription = true);
+    try {
+      final files = _stagedPrescriptionFiles
+          .map(
+            (s) => s.toMultipartFile(
+              field: '${AppConstants.visitPrescriptionImagesField}+',
+            ),
+          )
+          .toList();
+      await provider.addVisitPrescriptionImages(
+        visit,
+        files,
+        consultantName: consultantName,
+      );
+      if (mounted) {
+        setState(() => _stagedPrescriptionFiles.clear());
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppTheme.success,
+            content: const Text(
+              'Prescription image attached & the resident has been notified!',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppTheme.danger,
+            content: Text('Error attaching prescription image: $e'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingPrescription = false);
+    }
+  }
+
+  Future<void> _printPrescription(Visit visit) async {
+    try {
+      final updatedVisit = visit.id == _currentLoadedVisitId
+          ? visit.copyWith(
+              consultantPrescription: _prescriptionController.text,
+              consultantName: _currentOperatorName(),
+            )
+          : visit;
+      await PdfService.printPrescriptionPdf(updatedVisit);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppTheme.danger,
+            content: Text('Error generating prescription PDF: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildPrescriptionImageSection(Visit visit) {
+    final provider = context.watch<ClinicProvider>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.medication_outlined,
+              color: AppTheme.success,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Prescription Image / Medication Sheet',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.secondary,
+              ),
+            ),
+            const Spacer(),
+            if (visit.prescriptionImages.isNotEmpty)
+              OutlinedButton.icon(
+                onPressed: _isGeneratingPdf
+                    ? null
+                    : () => _printPrescription(visit),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                ),
+                icon: const Icon(Icons.print_rounded, size: 16),
+                label: const Text('Print Prescription'),
+              ),
+            if (visit.prescriptionImages.isNotEmpty) const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: provider.isLoading || _isUploadingPrescription
+                  ? null
+                  : _pickPrescriptionImages,
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+              ),
+              icon: const Icon(Icons.upload_file_rounded, size: 16),
+              label: const Text('Attach Image'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (visit.prescriptionImages.isEmpty &&
+            _stagedPrescriptionFiles.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.slate50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.slate200),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.image_not_supported_outlined,
+                  color: AppTheme.slate400,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'No prescription image attached yet.',
+                  style: TextStyle(color: AppTheme.slate500, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        if (visit.prescriptionImages.isNotEmpty ||
+            _stagedPrescriptionFiles.isNotEmpty) ...[
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              ...visit.prescriptionImages.map((filename) {
+                final url = visit.getImageUrl(filename);
+                return _buildPrescriptionImageCard(
+                  visit,
+                  filename,
+                  url,
+                );
+              }),
+              ..._stagedPrescriptionFiles.asMap().entries.map((entry) {
+                return _buildStagedPrescriptionCard(entry.key, entry.value);
+              }),
+            ],
+          ),
+          if (_stagedPrescriptionFiles.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.success,
+                  ),
+                  onPressed:
+                      provider.isLoading || _isUploadingPrescription
+                          ? null
+                          : () => _attachPrescriptionImage(visit),
+                  icon: _isUploadingPrescription
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send_rounded, size: 16),
+                  label: Text(
+                    _isUploadingPrescription
+                        ? 'Uploading...'
+                        : 'Upload & Notify Resident',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () =>
+                      setState(() => _stagedPrescriptionFiles.clear()),
+                  child: const Text('Clear staged'),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPrescriptionImageCard(
+    Visit visit,
+    String filename,
+    String url,
+  ) {
+    return Container(
+      width: 150,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.slate200),
+        color: AppTheme.cardBg,
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.shadow,
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(8),
+                ),
+                child: SizedBox(
+                  height: 110,
+                  width: double.infinity,
+                  child: Image.network(
+                    url,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => Container(
+                      color: AppTheme.slate100,
+                      child: Icon(
+                        Icons.broken_image,
+                        color: AppTheme.slate400,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      onTap: () => ImageViewerDialog.show(
+                        context,
+                        imageUrl: url,
+                        title: filename,
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Icon(
+                          Icons.fullscreen,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    InkWell(
+                      onTap: () => providerDeletePrescription(visit, filename),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.danger.withValues(alpha: 0.85),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Text(
+              filename,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> providerDeletePrescription(Visit visit, String filename) async {
+    final provider = context.read<ClinicProvider>();
+    try {
+      await provider.deleteVisitPrescriptionImage(visit, filename);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppTheme.success,
+            content: const Text('Prescription image removed.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppTheme.danger,
+            content: Text('Failed to remove prescription image: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildStagedPrescriptionCard(int index, StagedImageFile stagedFile) {
+    return Container(
+      width: 150,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.4)),
+        color: AppTheme.cardBg,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(8),
+                ),
+                child: SizedBox(
+                  height: 110,
+                  width: double.infinity,
+                  child: Image.memory(
+                    stagedFile.bytes,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => Container(
+                      color: AppTheme.primaryLight,
+                      child: Center(
+                        child: Icon(
+                          Icons.insert_drive_file,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 4,
+                left: 4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'NEW',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 4,
+                right: 4,
+                child: InkWell(
+                  onTap: () => setState(() {
+                    _stagedPrescriptionFiles.removeAt(index);
+                  }),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.danger.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Text(
+              stagedFile.name,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showPastVisitsDialog(
@@ -604,7 +1067,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF0FDF4),
+                                // color: const Color(0xFFF0FDF4),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
                                   color: AppTheme.successLight,
@@ -644,7 +1107,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                     controller: diagCtrl,
                                     decoration: const InputDecoration(
                                       hintText: 'Enter clinical diagnosis...',
-                                      fillColor: Colors.white,
+                                      // fillColor: Colors.white,
                                       filled: true,
                                     ),
                                   ),
@@ -672,7 +1135,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                               decoration: const InputDecoration(
                                                 hintText:
                                                     'Management and recommendations...',
-                                                fillColor: Colors.white,
+                                                // fillColor: Colors.white,
                                                 filled: true,
                                               ),
                                             ),
@@ -699,7 +1162,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                               decoration: const InputDecoration(
                                                 hintText:
                                                     'Prescribed medications...',
-                                                fillColor: Colors.white,
+                                                // fillColor: Colors.white,
                                                 filled: true,
                                               ),
                                             ),
@@ -729,7 +1192,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                               controller: notesCtrl,
                                               decoration: const InputDecoration(
                                                 hintText: 'Follow-up notes...',
-                                                fillColor: Colors.white,
+                                                // fillColor: Colors.white,
                                                 filled: true,
                                               ),
                                             ),
@@ -757,7 +1220,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                                   Icons.badge_outlined,
                                                   size: 16,
                                                 ),
-                                                fillColor: Colors.white,
+                                                // fillColor: Colors.white,
                                                 filled: true,
                                               ),
                                             ),
@@ -885,6 +1348,11 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
           v.status == AppConstants.statusWithConsultant;
     }).toList();
 
+    // Patients referred to management remain visible in the consultant queue.
+    final sentToManagementVisits = visits
+        .where((v) => v.status == AppConstants.statusSentToManagement)
+        .toList();
+
     final completedVisits = visits
         .where((v) => v.status == AppConstants.statusCompleted)
         .toList();
@@ -893,7 +1361,11 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
         provider.selectedVisit ??
         (readyVisits.isNotEmpty
             ? readyVisits.first
-            : (completedVisits.isNotEmpty ? completedVisits.first : null));
+            : (sentToManagementVisits.isNotEmpty
+                  ? sentToManagementVisits.first
+                  : (completedVisits.isNotEmpty
+                        ? completedVisits.first
+                        : null)));
 
     if (selectedVisit != null && _currentLoadedVisitId != selectedVisit.id) {
       _loadVisitData(selectedVisit);
@@ -961,6 +1433,39 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
             ),
             const SizedBox(height: 20),
 
+            // View Toggle: Case Management | Operation Schedule
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.slate100,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppTheme.slate200),
+                  ),
+                  child: Row(
+                    children: [
+                      _buildViewToggle(
+                        icon: Icons.assessment_outlined,
+                        label: 'Case Management',
+                        selected: !_showOperationsCalendar,
+                        onTap: () =>
+                            setState(() => _showOperationsCalendar = false),
+                      ),
+                      _buildViewToggle(
+                        icon: Icons.calendar_month_outlined,
+                        label: 'Operation Schedule',
+                        selected: _showOperationsCalendar,
+                        onTap: () =>
+                            setState(() => _showOperationsCalendar = true),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
             // Main Dashboard Workspace
             Expanded(
               child: Row(
@@ -1008,6 +1513,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                             Expanded(
                               child:
                                   (readyVisits.isEmpty &&
+                                      sentToManagementVisits.isEmpty &&
                                       completedVisits.isEmpty)
                                   ? Center(
                                       child: Column(
@@ -1054,6 +1560,31 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                                             ),
                                           ),
                                         ],
+                                        if (sentToManagementVisits
+                                            .isNotEmpty) ...[
+                                          const SizedBox(height: 12),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 6,
+                                            ),
+                                            child: Text(
+                                              'SENT TO MANAGEMENT',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: AppTheme.slate500,
+                                                letterSpacing: 0.5,
+                                              ),
+                                            ),
+                                          ),
+                                          ...sentToManagementVisits.map(
+                                            (v) => _buildQueueCard(
+                                              provider,
+                                              v,
+                                              selectedVisit,
+                                            ),
+                                          ),
+                                        ],
                                         if (completedVisits.isNotEmpty) ...[
                                           const SizedBox(height: 12),
                                           Padding(
@@ -1090,7 +1621,72 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
 
                   // Right: Comprehensive Case Dashboard & Clinical Assessment
                   Expanded(
-                    child: selectedVisit == null
+                    child: _showOperationsCalendar
+                        ? Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.primaryLight,
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          Icons.calendar_month_rounded,
+                                          color: AppTheme.primary,
+                                          size: 18,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Operations Schedule',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppTheme.secondary,
+                                          ),
+                                        ),
+                                      ),
+                                      Text(
+                                        'Consultant bookable • Management is notified',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: AppTheme.slate500,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      OutlinedButton.icon(
+                                        onPressed: _bookOperation,
+                                        icon: const Icon(Icons.add, size: 14),
+                                        label: const Text('Book Operation'),
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Expanded(
+                                    child: OperationsCalendarPanel(
+                                      operations: provider.operations,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : selectedVisit == null
                         ? Card(
                             child: Center(
                               child: Text(
@@ -1145,6 +1741,68 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                           ),
                   ),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _bookOperation() async {
+    final provider = context.read<ClinicProvider>();
+    final selected = provider.selectedVisit;
+    final preselectedPatient =
+        selected?.patient ??
+        provider.patients.where((p) => p.id == selected?.patientId).firstOrNull;
+
+    final op = await OperationBookingDialog.show(
+      context,
+      preselectedPatient: preselectedPatient,
+    );
+    if (op != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppTheme.success,
+          content: Text(
+            'Operation booked for ${op.patient?.name ?? "patient"}!',
+          ),
+        ),
+      );
+    }
+  }
+
+  Widget _buildViewToggle({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: selected ? AppTheme.onPrimary : AppTheme.slate500,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                color: selected ? AppTheme.onPrimary : AppTheme.slate700,
               ),
             ),
           ],
@@ -1870,6 +2528,14 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 16),
+
+          // Prescription Image / Medication Sheet Section
+          _buildPrescriptionImageSection(visit),
+          const SizedBox(height: 16),
+          const Divider(),
           const SizedBox(height: 20),
 
           // Action Buttons: Routing Actions (Send Back / Send to Management) & Saving Actions

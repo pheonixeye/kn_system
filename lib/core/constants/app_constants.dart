@@ -9,6 +9,19 @@ class AppConstants {
   static const String visitsCollection = 'visits';
   static const String operationsCollection = 'operations';
   static const String usersCollection = 'users';
+  static const String notificationsCollection = 'notifications';
+
+  // Notification Types
+  static const String notifTypePatientSentBack = 'patient_sent_back';
+  static const String notifTypeReferredToManagement = 'referred_to_management';
+  static const String notifTypeOperationScheduled = 'operation_scheduled';
+  static const String notifTypeOperationUpdated = 'operation_updated';
+  static const String notifTypeOperationImagesAdded = 'operation_images_added';
+  static const String notifTypePrescriptionAdded = 'prescription_added';
+  static const String notifTypeGeneral = 'general';
+
+  // Visit Fields
+  static const String visitPrescriptionImagesField = 'prescription_images';
 
   // User Types
   static const String userTypeReceptionist = 'receptionist';

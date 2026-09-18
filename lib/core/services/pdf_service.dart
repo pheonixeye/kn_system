@@ -1,17 +1,435 @@
-import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../constants/app_constants.dart';
+import '../../models/operation.dart';
 import '../../models/visit.dart';
 
 class PdfService {
+  // ========================= Branded Header / Footer =========================
+  static pw.MemoryImage? _cachedHeader;
+  static pw.MemoryImage? _cachedFooter;
+
+  static Future<pw.MemoryImage> _loadHeader() async {
+    if (_cachedHeader == null) {
+      final data = await rootBundle.load('assets/images/header.png');
+      _cachedHeader = pw.MemoryImage(data.buffer.asUint8List());
+    }
+    return _cachedHeader!;
+  }
+
+  static Future<pw.MemoryImage> _loadFooter() async {
+    if (_cachedFooter == null) {
+      final data = await rootBundle.load('assets/images/footer.png');
+      _cachedFooter = pw.MemoryImage(data.buffer.asUint8List());
+    }
+    return _cachedFooter!;
+  }
+
+  static const double _pageMarginPt = 32;
+  static const double _headerAspectRatio = 4.17;
+  static const double _footerAspectRatio = 6.1;
+
+  static pw.Widget _brandHeader(pw.MemoryImage image, pw.Context context) {
+    final width = context.page.pageFormat.width - (_pageMarginPt * 2);
+    return pw.SizedBox(
+      height: width / _headerAspectRatio,
+      child: pw.Image(image, fit: pw.BoxFit.contain, width: width),
+    );
+  }
+
+  static pw.Widget _brandFooter(pw.MemoryImage image, pw.Context context) {
+    final width = context.page.pageFormat.width - (_pageMarginPt * 2);
+    return pw.SizedBox(
+      height: width / _footerAspectRatio,
+      child: pw.Image(image, fit: pw.BoxFit.contain, width: width),
+    );
+  }
+
+  // ========================= Cairo Fonts (Google Fonts) =========================
+  static Future<pw.Font>? _cairoRegularFuture;
+  static Future<pw.Font>? _cairoBoldFuture;
+  static Future<pw.ThemeData>? _cairoThemeFuture;
+
+  /// Loads the Cairo font family from Google Fonts (via the printing package's
+  /// [PdfGoogleFonts]) and applies it to the whole PDF document.
+  static Future<pw.ThemeData> _cairoTheme() {
+    return _cairoThemeFuture ??= () async {
+      final regular = await (_cairoRegularFuture ??=
+          PdfGoogleFonts.cairoRegular());
+      final bold = await (_cairoBoldFuture ??= PdfGoogleFonts.cairoBold());
+      return pw.ThemeData.withFont(
+        base: regular,
+        bold: bold,
+        italic: regular,
+        boldItalic: bold,
+      );
+    }();
+  }
+
+  // ========================= Operation PDF =========================
+  static Future<Uint8List> generateOperationPdf(Operation op) async {
+    final pdf = pw.Document(theme: await _cairoTheme());
+    final patient = op.patient;
+    final headerImg = await _loadHeader();
+    final footerImg = await _loadFooter();
+
+    final List<pw.ImageProvider> embeddedImages = [];
+    for (final imgName in op.intraOpImages) {
+      try {
+        final url = op.getImageUrl(imgName);
+        final response = await http
+            .get(Uri.parse(url))
+            .timeout(const Duration(seconds: 5));
+        if (response.statusCode == 200) {
+          embeddedImages.add(pw.MemoryImage(response.bodyBytes));
+        }
+      } catch (_) {
+        // Skip inaccessible image
+      }
+    }
+
+    final primaryColor = PdfColor.fromInt(0xFF0E7490);
+    final lightBgColor = PdfColor.fromInt(0xFFF8FAFC);
+    final borderColor = PdfColor.fromInt(0xFFE2E8F0);
+    final greenTint = PdfColor.fromInt(0xFFF0FDF4);
+    final greenBorder = PdfColor.fromInt(0xFFBBF7D0);
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        header: (pw.Context context) {
+          return _brandHeader(headerImg, context);
+        },
+        footer: (pw.Context context) {
+          return _brandFooter(footerImg, context);
+        },
+        build: (pw.Context context) {
+          return [
+            // 1. Patient Demographics
+            pw.Container(
+              decoration: pw.BoxDecoration(
+                color: lightBgColor,
+                borderRadius: pw.BorderRadius.circular(8),
+                border: pw.Border.all(color: borderColor),
+              ),
+              padding: const pw.EdgeInsets.all(12),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'PATIENT DEMOGRAPHICS',
+                    style: pw.TextStyle(
+                      fontSize: 10,
+                      fontWeight: pw.FontWeight.bold,
+                      color: primaryColor,
+                    ),
+                  ),
+                  pw.SizedBox(height: 8),
+                  pw.Row(
+                    children: [
+                      _buildInfoCol(
+                        'Patient Name',
+                        patient?.name ?? 'Unknown',
+                        flex: 3,
+                      ),
+                      _buildInfoCol('Phone', patient?.phone ?? '-', flex: 2),
+                      _buildInfoCol(
+                        'Age / Gender',
+                        '${patient?.calculatedAge != null ? "${patient!.calculatedAge} yrs" : (patient?.dob ?? "-")} • ${patient?.gender ?? "-"}',
+                        flex: 2,
+                      ),
+                      _buildInfoCol(
+                        'National ID',
+                        patient?.nationalId ?? '-',
+                        flex: 2,
+                      ),
+                    ],
+                  ),
+                  pw.SizedBox(height: 6),
+                  pw.Row(
+                    children: [
+                      _buildInfoCol(
+                        'Operation Date & Time',
+                        op.dateTime != null
+                            ? DateFormat('EEEE, dd MMMM yyyy • hh:mm a')
+                                  .format(op.dateTime!)
+                            : '-',
+                        flex: 4,
+                      ),
+                      _buildInfoCol(
+                        'Grafts Expected',
+                        op.graftsExpected != null
+                            ? op.graftsExpected.toString()
+                            : '0',
+                        flex: 2,
+                      ),
+                      _buildInfoCol(
+                        'Grafts Done',
+                        op.graftsDone != null ? op.graftsDone.toString() : '0',
+                        flex: 2,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 14),
+
+            // 2. Operation Highlights
+            pw.Row(
+              children: [
+                _buildHighlightCard(
+                  'EXPECTED GRAFTS',
+                  '${op.graftsExpected ?? 0}',
+                  PdfColor.fromInt(0xFF0369A1),
+                  PdfColor.fromInt(0xFFE0F2FE),
+                ),
+                pw.SizedBox(width: 12),
+                _buildHighlightCard(
+                  'GRAFTS DONE',
+                  '${op.graftsDone ?? 0}',
+                  PdfColor.fromInt(0xFF15803D),
+                  PdfColor.fromInt(0xFFDCFCE7),
+                ),
+                pw.SizedBox(width: 12),
+                _buildHighlightCard(
+                  'IMAGES ON RECORD',
+                  '${op.intraOpImages.length}',
+                  PdfColor.fromInt(0xFF6D28D9),
+                  PdfColor.fromInt(0xFFEDE9FE),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 14),
+
+            // 3. Financial Summary
+            _buildSectionHeader('FINANCIAL SUMMARY (EGP)', primaryColor),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(14),
+              decoration: pw.BoxDecoration(
+                color: greenTint,
+                borderRadius: pw.BorderRadius.circular(8),
+                border: pw.Border.all(color: greenBorder),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                children: [
+                  _buildFinanceItem(
+                    'Total Operation Price',
+                    op.totalPrice != null ? _money(op.totalPrice!) : '--',
+                    PdfColor.fromInt(0xFF334155),
+                  ),
+                  _buildFinanceItem(
+                    'Deposit Paid',
+                    op.deposit != null ? _money(op.deposit!) : '--',
+                    PdfColor.fromInt(0xFF15803D),
+                  ),
+                  _buildFinanceItem(
+                    'Remaining at Operation',
+                    op.remainingAtOperation != null
+                        ? _money(op.remainingAtOperation!)
+                        : '--',
+                    PdfColor.fromInt(0xFFB45309),
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 14),
+
+            // 4. Intra-op Images
+            if (embeddedImages.isNotEmpty) ...[
+              _buildSectionHeader(
+                'INTRA-OPERATIVE IMAGES (${embeddedImages.length})',
+                primaryColor,
+              ),
+              pw.Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: embeddedImages.map((imgProvider) {
+                  return pw.Container(
+                    width: 160,
+                    height: 130,
+                    decoration: pw.BoxDecoration(
+                      borderRadius: pw.BorderRadius.circular(6),
+                      border: pw.Border.all(color: borderColor),
+                    ),
+                    child: pw.ClipRRect(
+                      horizontalRadius: 6,
+                      verticalRadius: 6,
+                      child: pw.Image(imgProvider, fit: pw.BoxFit.cover),
+                    ),
+                  );
+                }).toList(),
+              ),
+              pw.SizedBox(height: 16),
+            ],
+
+            // 5. Notes
+            _buildSectionHeader('NOTES', primaryColor),
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.white,
+                borderRadius: pw.BorderRadius.circular(6),
+                border: pw.Border.all(color: borderColor),
+              ),
+              child: pw.Text(
+                'Please bring this document on the day of the operation. '
+                'Confirm the scheduled time with the clinic 48 hours beforehand.',
+                style: const pw.TextStyle(fontSize: 10),
+              ),
+            ),
+            pw.SizedBox(height: 20),
+
+            // 6. Signatures
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Patient / Guardian Signature:',
+                      style: const pw.TextStyle(
+                        fontSize: 9,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                    pw.SizedBox(height: 25),
+                    pw.Container(width: 150, height: 1, color: borderColor),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      patient?.name ?? 'Patient',
+                      style: pw.TextStyle(
+                        fontSize: 9,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Clinic Management / Doctor Stamp:',
+                      style: const pw.TextStyle(
+                        fontSize: 9,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                    pw.SizedBox(height: 25),
+                    pw.Container(width: 150, height: 1, color: borderColor),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      AppConstants.appTitle,
+                      style: pw.TextStyle(
+                        fontSize: 9,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ];
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  static String _money(double value) {
+    return '${NumberFormat.currency(symbol: '', decimalDigits: 0).format(value)} EGP';
+  }
+
+  static pw.Widget _buildHighlightCard(
+    String label,
+    String value,
+    PdfColor textColor,
+    PdfColor bgColor,
+  ) {
+    return pw.Expanded(
+      child: pw.Container(
+        padding: const pw.EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+        decoration: pw.BoxDecoration(
+          color: bgColor,
+          borderRadius: pw.BorderRadius.circular(10),
+        ),
+        child: pw.Column(
+          children: [
+            pw.Text(
+              label,
+              style: pw.TextStyle(
+                fontSize: 8,
+                fontWeight: pw.FontWeight.bold,
+                color: textColor,
+                letterSpacing: 0.4,
+              ),
+            ),
+            pw.SizedBox(height: 5),
+            pw.Text(
+              value,
+              style: pw.TextStyle(
+                fontSize: 20,
+                fontWeight: pw.FontWeight.bold,
+                color: textColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static pw.Widget _buildFinanceItem(
+    String label,
+    String value,
+    PdfColor color,
+  ) {
+    return pw.Column(
+      children: [
+        pw.Text(
+          label,
+          style: pw.TextStyle(
+            fontSize: 8.5,
+            fontWeight: pw.FontWeight.bold,
+            color: PdfColors.grey700,
+          ),
+        ),
+        pw.SizedBox(height: 5),
+        pw.Text(
+          value,
+          style: pw.TextStyle(
+            fontSize: 15,
+            fontWeight: pw.FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
+  static Future<void> printOperationReport(Operation op) async {
+    final pdfBytes = await generateOperationPdf(op);
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdfBytes,
+      name: 'Operation_${op.patient?.name ?? "Patient"}_${op.id}.pdf',
+    );
+  }
+
+  // ========================= Visit PDF =========================
   static Future<Uint8List> generateVisitPdf(Visit visit) async {
-    final pdf = pw.Document();
+    final pdf = pw.Document(theme: await _cairoTheme());
     final patient = visit.patient;
-    final nowStr = DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now());
+    final headerImg = await _loadHeader();
+    final footerImg = await _loadFooter();
 
     // Fetch images asynchronously to embed in PDF
     final List<pw.ImageProvider> embeddedImages = [];
@@ -30,7 +448,6 @@ class PdfService {
     }
 
     final primaryColor = PdfColor.fromInt(0xFF0E7490);
-    final slateColor = PdfColor.fromInt(0xFF334155);
     final lightBgColor = PdfColor.fromInt(0xFFF8FAFC);
     final borderColor = PdfColor.fromInt(0xFFE2E8F0);
 
@@ -39,117 +456,10 @@ class PdfService {
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
         header: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Row(
-                    children: [
-                      pw.Container(
-                        width: 38,
-                        height: 38,
-                        decoration: pw.BoxDecoration(
-                          color: primaryColor,
-                          borderRadius: pw.BorderRadius.circular(8),
-                        ),
-                        child: pw.Center(
-                          child: pw.Text(
-                            '+',
-                            style: pw.TextStyle(
-                              color: PdfColors.white,
-                              fontSize: 24,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      pw.SizedBox(width: 12),
-                      pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Text(
-                            AppConstants.appTitle,
-                            style: pw.TextStyle(
-                              fontSize: 18,
-                              fontWeight: pw.FontWeight.bold,
-                              color: primaryColor,
-                            ),
-                          ),
-                          pw.Text(
-                            'Comprehensive Patient Consultation & Clinical Summary',
-                            style: pw.TextStyle(fontSize: 9, color: slateColor),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.end,
-                    children: [
-                      pw.Container(
-                        padding: const pw.EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: pw.BoxDecoration(
-                          color: PdfColor.fromInt(0xFFE0F2FE),
-                          borderRadius: pw.BorderRadius.circular(6),
-                        ),
-                        child: pw.Text(
-                          'QUEUE #${visit.queueNumber ?? '-'}',
-                          style: pw.TextStyle(
-                            fontSize: 11,
-                            fontWeight: pw.FontWeight.bold,
-                            color: primaryColor,
-                          ),
-                        ),
-                      ),
-                      pw.SizedBox(height: 4),
-                      pw.Text(
-                        'Generated: $nowStr',
-                        style: const pw.TextStyle(
-                          fontSize: 8,
-                          color: PdfColors.grey700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              pw.Divider(color: borderColor, thickness: 1.5),
-              pw.SizedBox(height: 12),
-            ],
-          );
+          return _brandHeader(headerImg, context);
         },
         footer: (pw.Context context) {
-          return pw.Column(
-            children: [
-              pw.Divider(color: borderColor, thickness: 1),
-              pw.SizedBox(height: 6),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'Confidential Medical Record • ${AppConstants.appTitle}',
-                    style: const pw.TextStyle(
-                      fontSize: 8,
-                      color: PdfColors.grey600,
-                    ),
-                  ),
-                  pw.Text(
-                    'Page ${context.pageNumber} of ${context.pagesCount}',
-                    style: const pw.TextStyle(
-                      fontSize: 8,
-                      color: PdfColors.grey600,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          );
+          return _brandFooter(footerImg, context);
         },
         build: (pw.Context context) {
           return [
@@ -476,6 +786,309 @@ class PdfService {
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdfBytes,
       name: 'Clinic_Report_${visit.patient?.name ?? "Patient"}_${visit.id}.pdf',
+    );
+  }
+
+  // ========================= Prescription PDF =========================
+  static Future<Uint8List> generatePrescriptionPdf(Visit visit) async {
+    final pdf = pw.Document(theme: await _cairoTheme());
+    final patient = visit.patient;
+    final nowStr = DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now());
+    final headerImg = await _loadHeader();
+    final footerImg = await _loadFooter();
+
+    // Fetch the attached prescription images to embed in the PDF.
+    final List<pw.ImageProvider> embeddedImages = [];
+    for (final imgName in visit.prescriptionImages) {
+      try {
+        final url = visit.getImageUrl(imgName);
+        final response = await http
+            .get(Uri.parse(url))
+            .timeout(const Duration(seconds: 8));
+        if (response.statusCode == 200) {
+          embeddedImages.add(pw.MemoryImage(response.bodyBytes));
+        }
+      } catch (_) {
+        // Skip inaccessible image
+      }
+    }
+
+    final primaryColor = PdfColor.fromInt(0xFF0B6E4F);
+    final borderColor = PdfColor.fromInt(0xFFE2E8F0);
+    final lightBgColor = PdfColor.fromInt(0xFFF8FAFC);
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        header: (pw.Context context) {
+          return _brandHeader(headerImg, context);
+        },
+        footer: (pw.Context context) {
+          return _brandFooter(footerImg, context);
+        },
+        build: (pw.Context context) {
+          return [
+            // Rx header strip
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                color: lightBgColor,
+                borderRadius: pw.BorderRadius.circular(8),
+                border: pw.Border.all(color: borderColor),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'MEDICAL PRESCRIPTION',
+                    style: pw.TextStyle(
+                      fontSize: 13,
+                      fontWeight: pw.FontWeight.bold,
+                      color: primaryColor,
+                    ),
+                  ),
+                  pw.SizedBox(height: 8),
+                  pw.Row(
+                    children: [
+                      _buildInfoCol(
+                        'Patient Name',
+                        patient?.name ?? 'Unknown',
+                        flex: 3,
+                      ),
+                      _buildInfoCol('Phone', patient?.phone ?? '-', flex: 2),
+                      _buildInfoCol(
+                        'Age / Gender',
+                        '${patient?.calculatedAge != null ? "${patient!.calculatedAge} yrs" : (patient?.dob ?? "-")} • ${patient?.gender ?? "-"}',
+                        flex: 2,
+                      ),
+                      _buildInfoCol(
+                        'Visit Date',
+                        visit.visitDate ?? '-',
+                        flex: 2,
+                      ),
+                    ],
+                  ),
+                  pw.SizedBox(height: 6),
+                  pw.Row(
+                    children: [
+                      _buildInfoCol(
+                        'Queue Number',
+                        visit.queueNumber != null
+                            ? '#${visit.queueNumber}'
+                            : '-',
+                        flex: 2,
+                      ),
+                      _buildInfoCol(
+                        'Consultant',
+                        visit.consultantName?.isNotEmpty == true
+                            ? visit.consultantName!
+                            : '-',
+                        flex: 2,
+                      ),
+                      _buildInfoCol(
+                        'Issued',
+                        nowStr,
+                        flex: 2,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 14),
+
+            // Diagnosis
+            _buildSectionHeader('DIAGNOSIS', primaryColor),
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.white,
+                borderRadius: pw.BorderRadius.circular(6),
+                border: pw.Border.all(color: borderColor),
+              ),
+              child: pw.Text(
+                (visit.consultantDiagnosis?.isNotEmpty == true)
+                    ? visit.consultantDiagnosis!
+                    : 'None recorded',
+                style: pw.TextStyle(
+                  fontSize: 10,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+            pw.SizedBox(height: 14),
+
+            // Treatment plan
+            _buildSectionHeader('MANAGEMENT / TREATMENT PLAN', primaryColor),
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.white,
+                borderRadius: pw.BorderRadius.circular(6),
+                border: pw.Border.all(color: borderColor),
+              ),
+              child: pw.Text(
+                (visit.consultantPlan != null &&
+                        visit.consultantPlan!.trim().isNotEmpty)
+                    ? visit.consultantPlan!
+                    : 'None recorded',
+                style: const pw.TextStyle(fontSize: 10),
+              ),
+            ),
+            pw.SizedBox(height: 14),
+
+            // Prescription / Medications
+            _buildSectionHeader('PRESCRIPTION / MEDICATIONS', primaryColor),
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromInt(0xFFF0FDF4),
+                borderRadius: pw.BorderRadius.circular(6),
+                border: pw.Border.all(color: PdfColor.fromInt(0xFFBBF7D0)),
+              ),
+              child: pw.Text(
+                (visit.consultantPrescription != null &&
+                        visit.consultantPrescription!.trim().isNotEmpty)
+                    ? visit.consultantPrescription!
+                    : 'See attached prescription image',
+                style: pw.TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+            pw.SizedBox(height: 14),
+
+            // Attached prescription images note (printed full-size on next pages)
+            if (embeddedImages.isNotEmpty) ...[
+              _buildSectionHeader(
+                'ATTACHED PRESCRIPTION IMAGE(S) (${embeddedImages.length})',
+                primaryColor,
+              ),
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(
+                  color: lightBgColor,
+                  borderRadius: pw.BorderRadius.circular(6),
+                  border: pw.Border.all(color: borderColor),
+                ),
+                child: pw.Text(
+                  embeddedImages.length == 1
+                      ? 'The attached prescription image is printed full-size on the following page.'
+                      : 'The ${embeddedImages.length} attached prescription images are printed full-size on the following pages.',
+                  style: const pw.TextStyle(fontSize: 10),
+                ),
+              ),
+              pw.SizedBox(height: 14),
+            ],
+
+            // Clinical notes
+            if (visit.consultantNotes != null &&
+                visit.consultantNotes!.trim().isNotEmpty) ...[
+              _buildSectionHeader('CLINICAL NOTES', primaryColor),
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.white,
+                  borderRadius: pw.BorderRadius.circular(6),
+                  border: pw.Border.all(color: borderColor),
+                ),
+                child: pw.Text(
+                  visit.consultantNotes!,
+                  style: const pw.TextStyle(fontSize: 10),
+                ),
+              ),
+              pw.SizedBox(height: 14),
+            ],
+
+            // Signature block
+            pw.SizedBox(height: 20),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Patient / Guardian Signature:',
+                      style: const pw.TextStyle(
+                        fontSize: 9,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                    pw.SizedBox(height: 25),
+                    pw.Container(width: 150, height: 1, color: borderColor),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      patient?.name ?? 'Patient',
+                      style: pw.TextStyle(
+                        fontSize: 9,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Prescribing Consultant:',
+                      style: const pw.TextStyle(
+                        fontSize: 9,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                    pw.SizedBox(height: 25),
+                    pw.Container(width: 150, height: 1, color: borderColor),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      visit.consultantName?.isNotEmpty == true
+                          ? 'Dr. ${visit.consultantName}'
+                          : 'Consultant Physician',
+                      style: pw.TextStyle(
+                        fontSize: 9,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ];
+        },
+      ),
+    );
+
+    // Full-size attached prescription images: one per page, no header/footer.
+    for (final imgProvider in embeddedImages) {
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: pw.EdgeInsets.zero,
+          build: (pw.Context context) {
+            return pw.Center(
+              child: pw.Image(imgProvider, fit: pw.BoxFit.contain),
+            );
+          },
+        ),
+      );
+    }
+
+    return pdf.save();
+  }
+
+  static Future<void> printPrescriptionPdf(Visit visit) async {
+    final pdfBytes = await generatePrescriptionPdf(visit);
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdfBytes,
+      name:
+          'Prescription_${visit.patient?.name ?? "Patient"}_${visit.id}.pdf',
     );
   }
 

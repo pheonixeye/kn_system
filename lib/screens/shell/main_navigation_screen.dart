@@ -6,6 +6,7 @@ import '../../models/user.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/clinic_provider.dart';
 import '../../providers/theme_provider.dart';
+import 'package:kn_system/widgets/notification_bell.dart';
 import '../consultant/consultant_screen.dart';
 import '../management/management_screen.dart';
 import '../receptionist/receptionist_screen.dart';
@@ -287,6 +288,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
+                      const NotificationBell(),
+                      const SizedBox(width: 4),
 
                       // Dark/Light Theme Toggle
                       IconButton(

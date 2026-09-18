@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/services/pdf_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/visit.dart';
 import '../../models/vital_signs.dart';
@@ -9,6 +10,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/clinic_provider.dart';
 import '../../widgets/custom_badge.dart';
 import '../../widgets/image_dropzone.dart';
+import '../../widgets/patient_operations_dialog.dart';
 
 class ResidentScreen extends StatefulWidget {
   const ResidentScreen({super.key});
@@ -171,6 +173,53 @@ class _ResidentScreenState extends State<ResidentScreen> {
         );
       }
     }
+  }
+
+  Future<void> _printVisitPdf(Visit visit) async {
+    try {
+      final residentName =
+          context.read<AuthProvider>().currentUser?.name?.trim();
+      final updatedVisit = visit.id == _currentLoadedVisitId
+          ? visit.copyWith(
+              residentName: (residentName != null && residentName.isNotEmpty)
+                  ? residentName
+                  : _residentNameController.text.trim(),
+            )
+          : visit;
+      await PdfService.printVisitReport(updatedVisit);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppTheme.danger,
+            content: Text('Error generating visit PDF: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _printPrescription(Visit visit) async {
+    try {
+      await PdfService.printPrescriptionPdf(visit);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppTheme.danger,
+            content: Text('Error generating prescription PDF: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showPatientOperations(Visit visit) {
+    PatientOperationsDialog.show(
+      context,
+      patientId: visit.patientId,
+      patientName: visit.patient?.name ?? 'Patient',
+    );
   }
 
   @override
@@ -789,6 +838,43 @@ class _ResidentScreenState extends State<ResidentScreen> {
                                 ),
                                 Row(
                                   children: [
+                                    OutlinedButton.icon(
+                                      onPressed: () =>
+                                          _printVisitPdf(selectedVisit),
+                                      icon: const Icon(
+                                        Icons.print_outlined,
+                                        size: 16,
+                                      ),
+                                      label: const Text('Print Visit PDF'),
+                                    ),
+                                    if (selectedVisit.prescriptionImages
+                                        .isNotEmpty) ...[
+                                      const SizedBox(width: 12),
+                                      OutlinedButton.icon(
+                                        onPressed: () =>
+                                            _printPrescription(selectedVisit),
+                                        icon: const Icon(
+                                          Icons.medication_outlined,
+                                          size: 16,
+                                        ),
+                                        label: const Text(
+                                          'Print Prescription',
+                                        ),
+                                      ),
+                                    ],
+                                    const SizedBox(width: 12),
+                                    OutlinedButton.icon(
+                                      onPressed: () =>
+                                          _showPatientOperations(selectedVisit),
+                                      icon: const Icon(
+                                        Icons.local_hospital_outlined,
+                                        size: 16,
+                                      ),
+                                      label: const Text(
+                                        'Patient Operations',
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
                                     OutlinedButton.icon(
                                       onPressed: provider.isLoading
                                           ? null
