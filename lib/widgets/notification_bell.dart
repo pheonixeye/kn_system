@@ -13,10 +13,7 @@ class NotificationBell extends StatelessWidget {
   void _openNotifications(BuildContext context) {
     final provider = context.read<ClinicProvider>();
     provider.markAllNotificationsRead();
-    showDialog(
-      context: context,
-      builder: (_) => const _NotificationsDialog(),
-    );
+    showDialog(context: context, builder: (_) => const _NotificationsDialog());
   }
 
   @override
@@ -79,6 +76,10 @@ class _NotificationsDialog extends StatelessWidget {
         return Icons.add_photo_alternate_outlined;
       case AppConstants.notifTypePrescriptionAdded:
         return Icons.medication_outlined;
+      case AppConstants.notifTypeSentToResident:
+        return Icons.how_to_reg_rounded;
+      case AppConstants.notifTypeVisitCompleted:
+        return Icons.check_circle_outline;
       default:
         return Icons.notifications_rounded;
     }
@@ -97,6 +98,10 @@ class _NotificationsDialog extends StatelessWidget {
       case AppConstants.notifTypeOperationImagesAdded:
         return AppTheme.purple;
       case AppConstants.notifTypePrescriptionAdded:
+        return AppTheme.success;
+      case AppConstants.notifTypeSentToResident:
+        return AppTheme.primary;
+      case AppConstants.notifTypeVisitCompleted:
         return AppTheme.success;
       default:
         return AppTheme.slate500;
@@ -221,9 +226,8 @@ class _NotificationsDialog extends StatelessWidget {
                   vertical: 8,
                 ),
                 child: TextButton.icon(
-                  onPressed: () => context
-                      .read<ClinicProvider>()
-                      .markAllNotificationsRead(),
+                  onPressed: () =>
+                      context.read<ClinicProvider>().markAllNotificationsRead(),
                   icon: const Icon(Icons.done_all_rounded, size: 16),
                   label: const Text('Mark all as read'),
                 ),

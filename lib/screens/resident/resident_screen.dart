@@ -177,8 +177,11 @@ class _ResidentScreenState extends State<ResidentScreen> {
 
   Future<void> _printVisitPdf(Visit visit) async {
     try {
-      final residentName =
-          context.read<AuthProvider>().currentUser?.name?.trim();
+      final residentName = context
+          .read<AuthProvider>()
+          .currentUser
+          ?.name
+          ?.trim();
       final updatedVisit = visit.id == _currentLoadedVisitId
           ? visit.copyWith(
               residentName: (residentName != null && residentName.isNotEmpty)
@@ -220,6 +223,74 @@ class _ResidentScreenState extends State<ResidentScreen> {
       patientId: visit.patientId,
       patientName: visit.patient?.name ?? 'Patient',
     );
+  }
+
+  Future<void> _markVisitComplete(Visit visit) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: AppTheme.success),
+            const SizedBox(width: 8),
+            const Text('Mark Visit as Complete'),
+          ],
+        ),
+        content: Text(
+          'Mark the visit of ${visit.patient?.name ?? "this patient"} as completed?',
+          style: TextStyle(fontSize: 13, color: AppTheme.slate700),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            icon: const Icon(Icons.check_rounded, size: 16),
+            label: const Text('Mark Complete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final provider = context.read<ClinicProvider>();
+      final operatorName = context
+          .read<AuthProvider>()
+          .currentUser
+          ?.name
+          ?.trim();
+      try {
+        await provider.completeVisit(
+          visit,
+          senderName: (operatorName != null && operatorName.isNotEmpty)
+              ? operatorName
+              : _residentNameController.text.trim(),
+          completedByRole: AppConstants.userTypeResident,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppTheme.success,
+              content: Text(
+                'Visit of ${visit.patient?.name ?? "Patient"} marked as Complete.',
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppTheme.danger,
+              content: Text('Failed to complete visit: $e'),
+            ),
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -836,75 +907,99 @@ class _ResidentScreenState extends State<ResidentScreen> {
                                     ),
                                   ),
                                 ),
-                                Row(
-                                  children: [
-                                    OutlinedButton.icon(
-                                      onPressed: () =>
-                                          _printVisitPdf(selectedVisit),
-                                      icon: const Icon(
-                                        Icons.print_outlined,
-                                        size: 16,
-                                      ),
-                                      label: const Text('Print Visit PDF'),
-                                    ),
-                                    if (selectedVisit.prescriptionImages
-                                        .isNotEmpty) ...[
-                                      const SizedBox(width: 12),
-                                      OutlinedButton.icon(
-                                        onPressed: () =>
-                                            _printPrescription(selectedVisit),
-                                        icon: const Icon(
-                                          Icons.medication_outlined,
-                                          size: 16,
+                                SizedBox(width: 20),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: [
+                                        OutlinedButton.icon(
+                                          onPressed: () =>
+                                              _printVisitPdf(selectedVisit),
+                                          icon: const Icon(
+                                            Icons.print_outlined,
+                                            size: 16,
+                                          ),
+                                          label: const Text('Print Visit PDF'),
                                         ),
-                                        label: const Text(
-                                          'Print Prescription',
+                                        // if (selectedVisit.prescriptionImages
+                                        //     .isNotEmpty) ...[
+                                        const SizedBox(width: 12),
+                                        OutlinedButton.icon(
+                                          onPressed: () =>
+                                              _printPrescription(selectedVisit),
+                                          icon: const Icon(
+                                            Icons.medication_outlined,
+                                            size: 16,
+                                          ),
+                                          label: const Text(
+                                            'Print Prescription',
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                    const SizedBox(width: 12),
-                                    OutlinedButton.icon(
-                                      onPressed: () =>
-                                          _showPatientOperations(selectedVisit),
-                                      icon: const Icon(
-                                        Icons.local_hospital_outlined,
-                                        size: 16,
-                                      ),
-                                      label: const Text(
-                                        'Patient Operations',
-                                      ),
+                                        // ],
+                                        const SizedBox(width: 12),
+                                        OutlinedButton.icon(
+                                          onPressed: () =>
+                                              _showPatientOperations(
+                                                selectedVisit,
+                                              ),
+                                          icon: const Icon(
+                                            Icons.local_hospital_outlined,
+                                            size: 16,
+                                          ),
+                                          label: const Text(
+                                            'Patient Operations',
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        OutlinedButton.icon(
+                                          onPressed: provider.isLoading
+                                              ? null
+                                              : () => _saveIntake(
+                                                  selectedVisit,
+                                                  sendToConsultant: false,
+                                                ),
+                                          icon: const Icon(
+                                            Icons.save_outlined,
+                                            size: 16,
+                                          ),
+                                          label: const Text('Save Draft'),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        ElevatedButton.icon(
+                                          onPressed: provider.isLoading
+                                              ? null
+                                              : () => _saveIntake(
+                                                  selectedVisit,
+                                                  sendToConsultant: true,
+                                                ),
+                                          icon: const Icon(
+                                            Icons.send_rounded,
+                                            size: 16,
+                                          ),
+                                          label: const Text(
+                                            'Submit & Send to Consultant',
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        ElevatedButton.icon(
+                                          onPressed: provider.isLoading
+                                              ? null
+                                              : () => _markVisitComplete(
+                                                  selectedVisit,
+                                                ),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: AppTheme.success,
+                                          ),
+                                          icon: const Icon(
+                                            Icons.check_circle_outline,
+                                            size: 16,
+                                          ),
+                                          label: const Text('Mark Complete'),
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(width: 12),
-                                    OutlinedButton.icon(
-                                      onPressed: provider.isLoading
-                                          ? null
-                                          : () => _saveIntake(
-                                              selectedVisit,
-                                              sendToConsultant: false,
-                                            ),
-                                      icon: const Icon(
-                                        Icons.save_outlined,
-                                        size: 16,
-                                      ),
-                                      label: const Text('Save Draft'),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    ElevatedButton.icon(
-                                      onPressed: provider.isLoading
-                                          ? null
-                                          : () => _saveIntake(
-                                              selectedVisit,
-                                              sendToConsultant: true,
-                                            ),
-                                      icon: const Icon(
-                                        Icons.send_rounded,
-                                        size: 16,
-                                      ),
-                                      label: const Text(
-                                        'Submit & Send to Consultant',
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               ],
                             ),

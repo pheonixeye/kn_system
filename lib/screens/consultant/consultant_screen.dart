@@ -400,11 +400,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
       children: [
         Row(
           children: [
-            Icon(
-              Icons.medication_outlined,
-              color: AppTheme.success,
-              size: 18,
-            ),
+            Icon(Icons.medication_outlined, color: AppTheme.success, size: 18),
             const SizedBox(width: 8),
             Text(
               'Prescription Image / Medication Sheet',
@@ -415,20 +411,20 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
               ),
             ),
             const Spacer(),
-            if (visit.prescriptionImages.isNotEmpty)
-              OutlinedButton.icon(
-                onPressed: _isGeneratingPdf
-                    ? null
-                    : () => _printPrescription(visit),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
+            // if (visit.prescriptionImages.isNotEmpty)
+            OutlinedButton.icon(
+              onPressed: _isGeneratingPdf
+                  ? null
+                  : () => _printPrescription(visit),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
                 ),
-                icon: const Icon(Icons.print_rounded, size: 16),
-                label: const Text('Print Prescription'),
               ),
+              icon: const Icon(Icons.print_rounded, size: 16),
+              label: const Text('Print Prescription'),
+            ),
             if (visit.prescriptionImages.isNotEmpty) const SizedBox(width: 8),
             OutlinedButton.icon(
               onPressed: provider.isLoading || _isUploadingPrescription
@@ -478,11 +474,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
             children: [
               ...visit.prescriptionImages.map((filename) {
                 final url = visit.getImageUrl(filename);
-                return _buildPrescriptionImageCard(
-                  visit,
-                  filename,
-                  url,
-                );
+                return _buildPrescriptionImageCard(visit, filename, url);
               }),
               ..._stagedPrescriptionFiles.asMap().entries.map((entry) {
                 return _buildStagedPrescriptionCard(entry.key, entry.value);
@@ -497,10 +489,9 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.success,
                   ),
-                  onPressed:
-                      provider.isLoading || _isUploadingPrescription
-                          ? null
-                          : () => _attachPrescriptionImage(visit),
+                  onPressed: provider.isLoading || _isUploadingPrescription
+                      ? null
+                      : () => _attachPrescriptionImage(visit),
                   icon: _isUploadingPrescription
                       ? const SizedBox(
                           width: 14,
@@ -531,11 +522,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     );
   }
 
-  Widget _buildPrescriptionImageCard(
-    Visit visit,
-    String filename,
-    String url,
-  ) {
+  Widget _buildPrescriptionImageCard(Visit visit, String filename, String url) {
     return Container(
       width: 150,
       decoration: BoxDecoration(
@@ -566,10 +553,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
                     fit: BoxFit.contain,
                     errorBuilder: (_, _, _) => Container(
                       color: AppTheme.slate100,
-                      child: Icon(
-                        Icons.broken_image,
-                        color: AppTheme.slate400,
-                      ),
+                      child: Icon(Icons.broken_image, color: AppTheme.slate400),
                     ),
                   ),
                 ),

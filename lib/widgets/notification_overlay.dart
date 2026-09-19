@@ -160,6 +160,10 @@ class _NotificationToastCard extends StatelessWidget {
         return Icons.add_photo_alternate_outlined;
       case AppConstants.notifTypePrescriptionAdded:
         return Icons.medication_outlined;
+      case AppConstants.notifTypeSentToResident:
+        return Icons.how_to_reg_rounded;
+      case AppConstants.notifTypeVisitCompleted:
+        return Icons.check_circle_outline;
       default:
         return Icons.notifications_rounded;
     }
@@ -178,6 +182,10 @@ class _NotificationToastCard extends StatelessWidget {
       case AppConstants.notifTypeOperationImagesAdded:
         return AppTheme.purple;
       case AppConstants.notifTypePrescriptionAdded:
+        return AppTheme.success;
+      case AppConstants.notifTypeSentToResident:
+        return AppTheme.primary;
+      case AppConstants.notifTypeVisitCompleted:
         return AppTheme.success;
       default:
         return AppTheme.slate500;

@@ -28,6 +28,9 @@ enum UserType {
 
   bool get canAccessConsultantScreen => this == UserType.consultant;
 
+  bool get canAccessOperationsTab =>
+      this == UserType.resident || this == UserType.consultant;
+
   bool get canAccessManagerScreen =>
       this == UserType.manager || this == UserType.consultant;
 

@@ -60,9 +60,7 @@ class ClinicProvider extends ChangeNotifier {
 
   int get unreadNotificationCount {
     if (currentUserId == null) return 0;
-    return _notifications
-        .where((n) => !n.isReadBy(currentUserId!))
-        .length;
+    return _notifications.where((n) => !n.isReadBy(currentUserId!)).length;
   }
 
   List<Operation> getPatientOperations(String patientId) {
@@ -992,6 +990,115 @@ class ClinicProvider extends ChangeNotifier {
     }
   }
 
+  Future<Visit> sendVisitToResident(
+    Visit visit, {
+    String? notes,
+    String? senderName,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final body = <String, dynamic>{
+        'status': AppConstants.statusWaitingResident,
+        if (notes != null && notes.isNotEmpty) 'consultant_notes': notes.trim(),
+      };
+
+      final updated = await _pbService.updateVisit(id: visit.id, body: body);
+      final fullVisit = updated.copyWith(patient: visit.patient);
+
+      _updateVisitInList(fullVisit);
+      _selectedVisit = fullVisit;
+
+      if (_patientVisits.containsKey(visit.patientId)) {
+        final pIdx = _patientVisits[visit.patientId]!.indexWhere(
+          (v) => v.id == visit.id,
+        );
+        if (pIdx != -1) {
+          _patientVisits[visit.patientId]![pIdx] = fullVisit;
+        }
+      }
+
+      _notify(
+        targets: const [AppConstants.userTypeResident],
+        type: AppConstants.notifTypeSentToResident,
+        title: 'Patient Sent to Resident by Management',
+        body:
+            '${fullVisit.patient?.name ?? "A patient"} (Queue #${fullVisit.queueNumber ?? "-"}) was sent to the Resident Doctor queue by ${senderName?.isNotEmpty == true ? senderName : "management"} for further care.'
+            '${notes != null && notes.trim().isNotEmpty ? " Note: ${notes.trim()}" : ""}',
+        visitId: fullVisit.id,
+        patientId: fullVisit.patientId,
+        patientName: fullVisit.patient?.name,
+        senderName: senderName,
+      );
+
+      _isLoading = false;
+      notifyListeners();
+      return fullVisit;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to send patient to resident: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<Visit> completeVisit(
+    Visit visit, {
+    String? senderName,
+    String? completedByRole,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final updated = await _pbService.updateVisit(
+        id: visit.id,
+        body: {'status': AppConstants.statusCompleted},
+      );
+      final fullVisit = updated.copyWith(patient: visit.patient);
+
+      _updateVisitInList(fullVisit);
+      _selectedVisit = fullVisit;
+
+      if (_patientVisits.containsKey(visit.patientId)) {
+        final pIdx = _patientVisits[visit.patientId]!.indexWhere(
+          (v) => v.id == visit.id,
+        );
+        if (pIdx != -1) {
+          _patientVisits[visit.patientId]![pIdx] = fullVisit;
+        }
+      }
+
+      final roleLabel = completedByRole ?? 'clinic staff';
+      _notify(
+        targets: const [
+          AppConstants.userTypeConsultant,
+          AppConstants.userTypeReceptionist,
+        ],
+        type: AppConstants.notifTypeVisitCompleted,
+        title: 'Visit Completed',
+        body:
+            'Visit of ${fullVisit.patient?.name ?? "a patient"} (Queue #${fullVisit.queueNumber ?? "-"}) was marked as Complete by ${senderName?.isNotEmpty == true ? "$senderName ($roleLabel)" : roleLabel}.',
+        visitId: fullVisit.id,
+        patientId: fullVisit.patientId,
+        patientName: fullVisit.patient?.name,
+        senderName: senderName,
+      );
+
+      _isLoading = false;
+      notifyListeners();
+      return fullVisit;
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to complete visit: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<Visit> reviseVisitAssessment({
     required Visit visit,
     String? diagnosis,
@@ -1083,7 +1190,10 @@ class ClinicProvider extends ChangeNotifier {
 
     final readBy = [...notification.readBy, currentUserId!];
     try {
-      final updated = await _pbService.markNotificationRead(notification.id, readBy);
+      final updated = await _pbService.markNotificationRead(
+        notification.id,
+        readBy,
+      );
       final idx = _notifications.indexWhere((n) => n.id == notification.id);
       if (idx != -1) {
         _notifications[idx] = updated;
@@ -1112,6 +1222,7 @@ class ClinicProvider extends ChangeNotifier {
     double? totalPrice,
     double? deposit,
     double? remainingAtOperation,
+    String? operativeNotes,
     String? notifyTarget,
   }) async {
     _isLoading = true;
@@ -1121,7 +1232,7 @@ class ClinicProvider extends ChangeNotifier {
     try {
       final body = <String, dynamic>{
         'patient': patientId,
-        'date_time': dateTime.toUtc().toIso8601String(),
+        'date_time': dateTime.toIso8601String(),
       };
       if (currentUserId != null && currentUserId!.isNotEmpty) {
         body['added_by'] = currentUserId;
@@ -1133,6 +1244,7 @@ class ClinicProvider extends ChangeNotifier {
       if (remainingAtOperation != null) {
         body['remaining_at_operation'] = remainingAtOperation;
       }
+      if (operativeNotes != null) body['operative_notes'] = operativeNotes;
 
       final created = await _pbService.createOperation(body: body);
       final patient = _patients.where((p) => p.id == patientId).firstOrNull;
@@ -1179,6 +1291,7 @@ class ClinicProvider extends ChangeNotifier {
     double? totalPrice,
     double? deposit,
     double? remainingAtOperation,
+    String? operativeNotes,
   }) async {
     _isLoading = true;
     _errorMessage = null;
@@ -1190,7 +1303,7 @@ class ClinicProvider extends ChangeNotifier {
         body['patient'] = patientId;
       }
       if (dateTime != null) {
-        body['date_time'] = dateTime.toUtc().toIso8601String();
+        body['date_time'] = dateTime.toIso8601String();
       }
       if (graftsExpected != null) body['grafts_expected'] = graftsExpected;
       if (graftsDone != null) body['grafts_done'] = graftsDone;
@@ -1199,6 +1312,7 @@ class ClinicProvider extends ChangeNotifier {
       if (remainingAtOperation != null) {
         body['remaining_at_operation'] = remainingAtOperation;
       }
+      if (operativeNotes != null) body['operative_notes'] = operativeNotes;
 
       final updated = await _pbService.updateOperation(id: id, body: body);
       final patient = _patients

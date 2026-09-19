@@ -3,6 +3,7 @@ class AppConstants {
   static const String appSubtitle =
       'ProKliniK Integrated Clinical Workflow & Patient Management System';
   static const String pocketBaseUrl = String.fromEnvironment('POCKETBASE_URL');
+  static const String appVersion = String.fromEnvironment('APP_VERSION');
 
   // Collections
   static const String patientsCollection = 'patients';
@@ -18,6 +19,8 @@ class AppConstants {
   static const String notifTypeOperationUpdated = 'operation_updated';
   static const String notifTypeOperationImagesAdded = 'operation_images_added';
   static const String notifTypePrescriptionAdded = 'prescription_added';
+  static const String notifTypeSentToResident = 'sent_to_resident';
+  static const String notifTypeVisitCompleted = 'visit_completed';
   static const String notifTypeGeneral = 'general';
 
   // Visit Fields

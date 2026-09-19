@@ -9,6 +9,7 @@ import '../../providers/theme_provider.dart';
 import 'package:kn_system/widgets/notification_bell.dart';
 import '../consultant/consultant_screen.dart';
 import '../management/management_screen.dart';
+import '../operations/operations_screen.dart';
 import '../receptionist/receptionist_screen.dart';
 import '../resident/resident_screen.dart';
 
@@ -35,6 +36,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       const ReceptionistScreen(),
       if (userType.canAccessResidentScreen) const ResidentScreen(),
       if (userType.canAccessConsultantScreen) const ConsultantScreen(),
+      if (userType.canAccessOperationsTab) const OperationsScreen(),
       if (userType.canAccessManagementScreen) const ManagementScreen(),
     ];
 
@@ -59,6 +61,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final managementCount = visits
         .where((v) => v.status == AppConstants.statusSentToManagement)
         .length;
+
+    final now = DateTime.now();
+    final todayOperationsCount = provider.operations.where((o) {
+      final dt = o.dateTime;
+      return dt != null &&
+          dt.year == now.year &&
+          dt.month == now.month &&
+          dt.day == now.day;
+    }).length;
 
     final tabs =
         <
@@ -92,6 +103,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               activeIcon: Icons.dashboard_rounded,
               badgeCount: consultantCount,
               badgeColor: AppTheme.accent,
+            ),
+          if (userType.canAccessOperationsTab)
+            (
+              title: 'Operations',
+              icon: Icons.local_hospital_outlined,
+              activeIcon: Icons.local_hospital_rounded,
+              badgeCount: todayOperationsCount > 0
+                  ? todayOperationsCount
+                  : null,
+              badgeColor: AppTheme.primary,
             ),
           if (userType.canAccessManagementScreen)
             (
@@ -161,7 +182,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         ),
                       ),
                       Text(
-                        'ProKliniK Clinical Workflow System',
+                        'ProKliniK Clinical Workflow System (v${AppConstants.appVersion})',
                         style: TextStyle(
                           fontSize: 11,
                           color: AppTheme.slate500,

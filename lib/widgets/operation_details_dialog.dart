@@ -21,7 +21,7 @@ class OperationDetailsDialog extends StatelessWidget {
 
   Future<void> _print(BuildContext context) async {
     Navigator.of(context).pop();
-    await PdfService.printOperationReport(operation);
+    await PdfService.printOperationClinicalReport(operation);
   }
 
   @override
@@ -81,8 +81,9 @@ class OperationDetailsDialog extends StatelessWidget {
                         ),
                         Text(
                           op.dateTime != null
-                              ? DateFormat('EEEE, MMMM d, yyyy • hh:mm a')
-                                  .format(op.dateTime!)
+                              ? DateFormat(
+                                  'EEEE, MMMM d, yyyy • hh:mm a',
+                                ).format(op.dateTime!)
                               : 'Date not set',
                           style: TextStyle(
                             fontSize: 12,
@@ -138,8 +139,9 @@ class OperationDetailsDialog extends StatelessWidget {
                         _infoRow(
                           'Booked At',
                           op.dateTime != null
-                              ? DateFormat('EEEE, dd MMMM yyyy • hh:mm a')
-                                  .format(op.dateTime!)
+                              ? DateFormat(
+                                  'EEEE, dd MMMM yyyy • hh:mm a',
+                                ).format(op.dateTime!)
                               : '-',
                         ),
                         _infoRow(
@@ -156,6 +158,26 @@ class OperationDetailsDialog extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 14),
+
+                    // Operative notes
+                    if (op.operativeNotes != null &&
+                        op.operativeNotes!.trim().isNotEmpty) ...[
+                      _buildInfoSection(
+                        icon: Icons.edit_note_rounded,
+                        title: 'OPERATIVE NOTES',
+                        children: [
+                          Text(
+                            op.operativeNotes!.trim(),
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.5,
+                              color: AppTheme.slate700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                    ],
 
                     // Financial summary
                     _buildInfoSection(
@@ -189,8 +211,7 @@ class OperationDetailsDialog extends StatelessWidget {
                     // Intra-op images
                     _buildInfoSection(
                       icon: Icons.image_outlined,
-                      title:
-                          'INTRA-OP IMAGES (${op.intraOpImages.length})',
+                      title: 'INTRA-OP IMAGES (${op.intraOpImages.length})',
                       children: [
                         if (op.intraOpImages.isEmpty)
                           Padding(
@@ -314,7 +335,12 @@ class OperationDetailsDialog extends StatelessWidget {
     );
   }
 
-  Widget _infoRow(String label, String value, {Color? accent, bool bold = false}) {
+  Widget _infoRow(
+    String label,
+    String value, {
+    Color? accent,
+    bool bold = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(

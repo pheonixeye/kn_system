@@ -57,11 +57,12 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
   final _totalPriceController = TextEditingController();
   final _depositController = TextEditingController();
   final _remainingController = TextEditingController();
+  final _operativeNotesController = TextEditingController();
   bool _isSaving = false;
 
   _OperationBookingDialogState()
-      : _date = DateTime.now(),
-        _time = const TimeOfDay(hour: 9, minute: 0);
+    : _date = DateTime.now(),
+      _time = const TimeOfDay(hour: 9, minute: 0);
 
   bool get _isEditing => widget.operationToEdit != null;
 
@@ -103,6 +104,9 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
           0,
         );
       }
+      if (edit.operativeNotes != null) {
+        _operativeNotesController.text = edit.operativeNotes!;
+      }
     }
 
     _totalPriceController.addListener(_recalculateRemaining);
@@ -116,6 +120,7 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
     _totalPriceController.dispose();
     _depositController.dispose();
     _remainingController.dispose();
+    _operativeNotesController.dispose();
     super.dispose();
   }
 
@@ -167,13 +172,16 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
     );
 
     try {
-      final graftingExpected = int.tryParse(_graftsExpectedController.text.trim());
+      final graftingExpected = int.tryParse(
+        _graftsExpectedController.text.trim(),
+      );
       final graftingDone = int.tryParse(_graftsDoneController.text.trim());
       final total = double.tryParse(_totalPriceController.text.trim());
       final deposit = double.tryParse(_depositController.text.trim());
       final remaining = double.tryParse(_remainingController.text.trim());
 
       final edit = widget.operationToEdit;
+      final operativeNotes = _operativeNotesController.text.trim();
       final op = edit != null
           ? await provider.updateOperation(
               edit.id,
@@ -184,6 +192,7 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
               totalPrice: total,
               deposit: deposit,
               remainingAtOperation: remaining,
+              operativeNotes: operativeNotes,
             )
           : await provider.scheduleOperation(
               patientId: _selectedPatient!.id,
@@ -193,6 +202,7 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
               totalPrice: total,
               deposit: deposit,
               remainingAtOperation: remaining,
+              operativeNotes: operativeNotes,
               // Booked by the consultant -> also notify Management
               notifyTarget: AppConstants.userTypeManager,
             );
@@ -209,9 +219,9 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
   }
 
   void _showSnack(Color color, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(backgroundColor: color, content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(backgroundColor: color, content: Text(message)));
   }
 
   @override
@@ -315,38 +325,41 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
                       onSelected: (patient) {
                         setState(() => _selectedPatient = patient);
                       },
-                      fieldViewBuilder: (
-                        context,
-                        textEditingController,
-                        focusNode,
-                        onFieldSubmitted,
-                      ) {
-                        if (_selectedPatient != null &&
-                            textEditingController.text.isEmpty) {
-                          textEditingController.text =
-                              '${_selectedPatient!.name} (${_selectedPatient!.phone})';
-                        }
-                        return TextField(
-                          controller: textEditingController,
-                          focusNode: focusNode,
-                          decoration: InputDecoration(
-                            hintText: 'Search patient by name or phone...',
-                            prefixIcon: const Icon(
-                              Icons.person_search_outlined,
-                              size: 18,
-                            ),
-                            suffixIcon: _selectedPatient != null
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear, size: 16),
-                                    onPressed: () {
-                                      textEditingController.clear();
-                                      setState(() => _selectedPatient = null);
-                                    },
-                                  )
-                                : null,
-                          ),
-                        );
-                      },
+                      fieldViewBuilder:
+                          (
+                            context,
+                            textEditingController,
+                            focusNode,
+                            onFieldSubmitted,
+                          ) {
+                            if (_selectedPatient != null &&
+                                textEditingController.text.isEmpty) {
+                              textEditingController.text =
+                                  '${_selectedPatient!.name} (${_selectedPatient!.phone})';
+                            }
+                            return TextField(
+                              controller: textEditingController,
+                              focusNode: focusNode,
+                              decoration: InputDecoration(
+                                hintText: 'Search patient by name or phone...',
+                                prefixIcon: const Icon(
+                                  Icons.person_search_outlined,
+                                  size: 18,
+                                ),
+                                suffixIcon: _selectedPatient != null
+                                    ? IconButton(
+                                        icon: const Icon(Icons.clear, size: 16),
+                                        onPressed: () {
+                                          textEditingController.clear();
+                                          setState(
+                                            () => _selectedPatient = null,
+                                          );
+                                        },
+                                      )
+                                    : null,
+                              ),
+                            );
+                          },
                     ),
                     if (_selectedPatient != null) ...[
                       const SizedBox(height: 6),
@@ -434,7 +447,10 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
                             decoration: const InputDecoration(
                               labelText: 'Grafts Done',
                               hintText: 'e.g. 3600',
-                              prefixIcon: Icon(Icons.done_all_rounded, size: 16),
+                              prefixIcon: Icon(
+                                Icons.done_all_rounded,
+                                size: 16,
+                              ),
                             ),
                           ),
                         ),
@@ -442,58 +458,77 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
                     ),
                     const SizedBox(height: 14),
 
-                    // Financials
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _totalPriceController,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: const InputDecoration(
-                              labelText: 'Total Price',
-                              hintText: 'e.g. 25000',
-                              prefixIcon: Icon(
-                                Icons.payments_outlined,
-                                size: 16,
-                              ),
-                            ),
-                          ),
+                    // Operative Notes
+                    TextField(
+                      controller: _operativeNotesController,
+                      maxLines: 3,
+                      minLines: 2,
+                      textInputAction: TextInputAction.newline,
+                      decoration: const InputDecoration(
+                        labelText: 'Operative Notes',
+                        hintText:
+                            'e.g. Surgical plan, grafts detail, anesthesia notes...',
+                        alignLabelWithHint: true,
+                        prefixIcon: Padding(
+                          padding: EdgeInsets.only(bottom: 40),
+                          child: Icon(Icons.edit_note_rounded, size: 16),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: _depositController,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: const InputDecoration(
-                              labelText: 'Deposit Paid',
-                              hintText: 'e.g. 5000',
-                              prefixIcon: Icon(Icons.savings_outlined, size: 16),
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                     const SizedBox(height: 14),
-                    TextField(
-                      controller: _remainingController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Remaining',
-                        hintText: 'e.g. 20000',
-                        prefixIcon: Icon(
-                          Icons.account_balance_wallet_outlined,
-                          size: 16,
-                        ),
-                        helperText:
-                            'Remaining = Total Price - Deposit (auto-calculated)',
-                      ),
-                    ),
+
+                    // Financials
+                    // Row(
+                    //   children: [
+                    //     Expanded(
+                    //       child: TextField(
+                    //         controller: _totalPriceController,
+                    //         keyboardType: const TextInputType.numberWithOptions(
+                    //           decimal: true,
+                    //         ),
+                    //         decoration: const InputDecoration(
+                    //           labelText: 'Total Price',
+                    //           hintText: 'e.g. 25000',
+                    //           prefixIcon: Icon(
+                    //             Icons.payments_outlined,
+                    //             size: 16,
+                    //           ),
+                    //         ),
+                    //       ),
+                    //     ),
+                    //     const SizedBox(width: 12),
+                    //     Expanded(
+                    //       child: TextField(
+                    //         controller: _depositController,
+                    //         keyboardType: const TextInputType.numberWithOptions(
+                    //           decimal: true,
+                    //         ),
+                    //         decoration: const InputDecoration(
+                    //           labelText: 'Deposit Paid',
+                    //           hintText: 'e.g. 5000',
+                    //           prefixIcon: Icon(Icons.savings_outlined, size: 16),
+                    //         ),
+                    //       ),
+                    //     ),
+                    //   ],
+                    // ),
+                    // const SizedBox(height: 14),
+                    // TextField(
+                    //   controller: _remainingController,
+                    //   keyboardType: const TextInputType.numberWithOptions(
+                    //     decimal: true,
+                    //   ),
+                    //   decoration: const InputDecoration(
+                    //     labelText: 'Remaining',
+                    //     hintText: 'e.g. 20000',
+                    //     prefixIcon: Icon(
+                    //       Icons.account_balance_wallet_outlined,
+                    //       size: 16,
+                    //     ),
+                    //     helperText:
+                    //         'Remaining = Total Price - Deposit (auto-calculated)',
+                    //   ),
+                    // ),
                   ],
                 ),
               ),
@@ -584,5 +619,4 @@ class _OperationBookingDialogState extends State<OperationBookingDialog> {
       ],
     );
   }
-
 }

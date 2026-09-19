@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/operation.dart';
 import '../../models/patient.dart';
 import '../../models/visit.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/clinic_provider.dart';
 import '../../widgets/stat_card.dart';
 
@@ -251,6 +252,129 @@ class _ManagementScreenState extends State<ManagementScreen> {
     }
   }
 
+  String? _operatorName() {
+    return context.read<AuthProvider>().currentUser?.name?.trim();
+  }
+
+  Future<void> _sendVisitToResident(Visit visit) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.how_to_reg_rounded, color: AppTheme.primary),
+            const SizedBox(width: 8),
+            const Text('Send Patient to Resident'),
+          ],
+        ),
+        content: Text(
+          'Move ${visit.patient?.name ?? "this patient"} back to the Resident Doctor queue for continued care?',
+          style: TextStyle(fontSize: 13, color: AppTheme.slate700),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            icon: const Icon(Icons.how_to_reg_rounded, size: 16),
+            label: const Text('Send to Resident'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        await context.read<ClinicProvider>().sendVisitToResident(
+          visit,
+          senderName: _operatorName(),
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppTheme.primary,
+              content: Text(
+                '${visit.patient?.name ?? "Patient"} sent to the Resident Doctor queue.',
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppTheme.danger,
+              content: Text('Failed to send patient to resident: $e'),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _markVisitComplete(Visit visit) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: AppTheme.success),
+            const SizedBox(width: 8),
+            const Text('Mark Visit as Complete'),
+          ],
+        ),
+        content: Text(
+          'Mark the visit of ${visit.patient?.name ?? "this patient"} as completed?',
+          style: TextStyle(fontSize: 13, color: AppTheme.slate700),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            icon: const Icon(Icons.check_rounded, size: 16),
+            label: const Text('Mark Complete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        await context.read<ClinicProvider>().completeVisit(
+          visit,
+          senderName: _operatorName(),
+          completedByRole: AppConstants.userTypeManager,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppTheme.success,
+              content: Text(
+                'Visit of ${visit.patient?.name ?? "Patient"} marked as Complete.',
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppTheme.danger,
+              content: Text('Failed to complete visit: $e'),
+            ),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ClinicProvider>();
@@ -278,10 +402,10 @@ class _ManagementScreenState extends State<ManagementScreen> {
           o.dateTime!.day == now.day;
     }).toList();
 
-    final totalGrafts = operations.fold<int>(
-      0,
-      (sum, op) => sum + (op.graftsExpected ?? 0),
-    );
+    // final totalGrafts = operations.fold<int>(
+    //   0,
+    //   (sum, op) => sum + (op.graftsExpected ?? 0),
+    // );
 
     final totalDeposits = operations.fold<double>(
       0.0,
@@ -333,27 +457,30 @@ class _ManagementScreenState extends State<ManagementScreen> {
                     color: AppTheme.warning,
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: StatCard(
-                    title: 'Total Grafts Target',
-                    value: NumberFormat('#,###').format(totalGrafts),
-                    icon: Icons.stacked_line_chart_rounded,
-                    color: AppTheme.success,
+                // const SizedBox(width: 16),
+                // Expanded(
+                //   child: StatCard(
+                //     title: 'Total Grafts Target',
+                //     value: NumberFormat('#,###').format(totalGrafts),
+                //     icon: Icons.stacked_line_chart_rounded,
+                //     color: AppTheme.success,
+                //   ),
+                // ),
+                if (provider.currentUserType ==
+                    AppConstants.userTypeConsultant) ...[
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: StatCard(
+                      title: 'Deposits Collected',
+                      value: NumberFormat.currency(
+                        symbol: 'EGP ',
+                        decimalDigits: 0,
+                      ).format(totalDeposits),
+                      icon: Icons.account_balance_wallet_outlined,
+                      color: AppTheme.indigo,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: StatCard(
-                    title: 'Deposits Collected',
-                    value: NumberFormat.currency(
-                      symbol: 'EGP ',
-                      decimalDigits: 0,
-                    ).format(totalDeposits),
-                    icon: Icons.account_balance_wallet_outlined,
-                    color: AppTheme.indigo,
-                  ),
-                ),
+                ],
               ],
             ),
             const SizedBox(height: 20),
@@ -482,11 +609,16 @@ class _ManagementScreenState extends State<ManagementScreen> {
                     ),
                     onPressed: () {
                       if (pat != null) {
-                        _resetForm(preselectedPatient: pat, date: _selectedDate);
+                        _resetForm(
+                          preselectedPatient: pat,
+                          date: _selectedDate,
+                        );
                       }
                     },
                     icon: const Icon(Icons.add_task_rounded, size: 14),
-                    label: Text('Book ${pat?.name.split(" ").first ?? "Patient"}'),
+                    label: Text(
+                      'Book ${pat?.name.split(" ").first ?? "Patient"}',
+                    ),
                   ),
                   const SizedBox(width: 4),
                   IconButton(
@@ -511,6 +643,48 @@ class _ManagementScreenState extends State<ManagementScreen> {
                       size: 18,
                       color: AppTheme.purple,
                     ),
+                  ),
+                  PopupMenuButton<String>(
+                    padding: EdgeInsets.zero,
+                    icon: Icon(
+                      Icons.more_vert_rounded,
+                      size: 18,
+                      color: AppTheme.purple,
+                    ),
+                    onSelected: (action) {
+                      switch (action) {
+                        case 'send_to_resident':
+                          _sendVisitToResident(v);
+                        case 'mark_complete':
+                          _markVisitComplete(v);
+                      }
+                    },
+                    itemBuilder: (ctx) => [
+                      PopupMenuItem(
+                        value: 'send_to_resident',
+                        child: ListTile(
+                          leading: Icon(
+                            Icons.how_to_reg_rounded,
+                            color: AppTheme.primary,
+                          ),
+                          title: const Text('Send to Resident'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'mark_complete',
+                        child: ListTile(
+                          leading: Icon(
+                            Icons.check_circle_outline,
+                            color: AppTheme.success,
+                          ),
+                          title: const Text('Mark Visit Complete'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               );
@@ -946,7 +1120,9 @@ class _ManagementScreenState extends State<ManagementScreen> {
                               ),
                               onPressed: () async {
                                 try {
-                                  await PdfService.printOperationReport(op);
+                                  await PdfService.printOperationFinancialReport(
+                                    op,
+                                  );
                                 } catch (e) {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -1288,55 +1464,55 @@ class _ManagementScreenState extends State<ManagementScreen> {
         const SizedBox(height: 14),
 
         // Grafts Expected & Grafts Done
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Grafts Expected',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: _graftsExpectedController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      hintText: 'e.g. 3500',
-                      prefixIcon: Icon(
-                        Icons.format_list_numbered_rounded,
-                        size: 16,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Grafts Done',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: _graftsDoneController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      hintText: 'e.g. 3600',
-                      prefixIcon: Icon(Icons.done_all_rounded, size: 16),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
+        // Row(
+        //   children: [
+        //     Expanded(
+        //       child: Column(
+        //         crossAxisAlignment: CrossAxisAlignment.start,
+        //         children: [
+        //           const Text(
+        //             'Grafts Expected',
+        //             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        //           ),
+        //           const SizedBox(height: 6),
+        //           TextField(
+        //             controller: _graftsExpectedController,
+        //             keyboardType: TextInputType.number,
+        //             decoration: const InputDecoration(
+        //               hintText: 'e.g. 3500',
+        //               prefixIcon: Icon(
+        //                 Icons.format_list_numbered_rounded,
+        //                 size: 16,
+        //               ),
+        //             ),
+        //           ),
+        //         ],
+        //       ),
+        //     ),
+        //     const SizedBox(width: 12),
+        //     Expanded(
+        //       child: Column(
+        //         crossAxisAlignment: CrossAxisAlignment.start,
+        //         children: [
+        //           const Text(
+        //             'Grafts Done',
+        //             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        //           ),
+        //           const SizedBox(height: 6),
+        //           TextField(
+        //             controller: _graftsDoneController,
+        //             keyboardType: TextInputType.number,
+        //             decoration: const InputDecoration(
+        //               hintText: 'e.g. 3600',
+        //               prefixIcon: Icon(Icons.done_all_rounded, size: 16),
+        //             ),
+        //           ),
+        //         ],
+        //       ),
+        //     ),
+        //   ],
+        // ),
+        // const SizedBox(height: 14),
 
         // Financial Fields: Total Price, Deposit, Remaining at Operation
         Row(

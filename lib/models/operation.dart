@@ -16,6 +16,7 @@ class Operation extends Equatable {
   final double? totalPrice;
   final double? deposit;
   final double? remainingAtOperation;
+  final String? operativeNotes;
   final List<String> intraOpImages;
   final DateTime? created;
   final DateTime? updated;
@@ -32,6 +33,7 @@ class Operation extends Equatable {
     this.totalPrice,
     this.deposit,
     this.remainingAtOperation,
+    this.operativeNotes,
     this.intraOpImages = const [],
     this.created,
     this.updated,
@@ -77,6 +79,7 @@ class Operation extends Equatable {
         'remaining_at_operation',
         0.0,
       ),
+      operativeNotes: record.getStringValue('operative_notes'),
       intraOpImages: imagesList,
       created: DateTime.tryParse(record.getStringValue('created')),
       updated: DateTime.tryParse(record.getStringValue('updated')),
@@ -94,6 +97,7 @@ class Operation extends Equatable {
       if (deposit != null) 'deposit': deposit,
       if (remainingAtOperation != null)
         'remaining_at_operation': remainingAtOperation,
+      if (operativeNotes != null) 'operative_notes': operativeNotes,
     };
   }
 
@@ -109,6 +113,7 @@ class Operation extends Equatable {
     double? totalPrice,
     double? deposit,
     double? remainingAtOperation,
+    String? operativeNotes,
     List<String>? intraOpImages,
     DateTime? created,
     DateTime? updated,
@@ -125,6 +130,7 @@ class Operation extends Equatable {
       totalPrice: totalPrice ?? this.totalPrice,
       deposit: deposit ?? this.deposit,
       remainingAtOperation: remainingAtOperation ?? this.remainingAtOperation,
+      operativeNotes: operativeNotes ?? this.operativeNotes,
       intraOpImages: intraOpImages ?? this.intraOpImages,
       created: created ?? this.created,
       updated: updated ?? this.updated,
@@ -156,6 +162,7 @@ class Operation extends Equatable {
     totalPrice,
     deposit,
     remainingAtOperation,
+    operativeNotes,
     intraOpImages,
     created,
     updated,
