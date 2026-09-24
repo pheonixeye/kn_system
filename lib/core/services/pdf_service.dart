@@ -1747,6 +1747,10 @@ class PdfService {
                 : PdfColors.grey600,
             fontWeight: boldValue ? pw.FontWeight.bold : pw.FontWeight.normal,
           ),
+          textDirection: containsArabic(displayVal)
+              ? pw.TextDirection.rtl
+              : pw.TextDirection.ltr,
+          textAlign: pw.TextAlign.left,
         ),
       ],
     );
