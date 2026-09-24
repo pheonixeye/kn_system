@@ -7,6 +7,7 @@ import '../models/consultant_case_report.dart';
 import '../models/operation.dart';
 import '../models/visit.dart';
 import '../providers/clinic_provider.dart';
+import 'package:kn_system/core/constants/app_constants.dart';
 
 /// Lets the consultant build a comprehensive case report for a patient.
 ///
@@ -293,10 +294,15 @@ class _ConsultantCaseReportDialogState
                                 final hasClinical =
                                     v.consultantDiagnosis?.trim().isNotEmpty ==
                                     true;
+                                final visitType =
+                                    v.visitType != null &&
+                                        v.visitType!.trim().isNotEmpty
+                                    ? ' • ${AppConstants.formatVisitType(v.visitType!)}'
+                                    : ' • Visit type not specified';
                                 return DropdownMenuItem<String>(
                                   value: v.id,
                                   child: Text(
-                                    'Visit ${DateFormat("dd MMM yyyy").format(DateTime.tryParse(date) ?? DateTime.now())}${hasClinical ? " • has diagnosis" : ""}',
+                                    'Visit ${DateFormat("dd MMM yyyy").format(DateTime.tryParse(date) ?? DateTime.now())} $visitType ${hasClinical ? " • has diagnosis" : ""}',
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 );
