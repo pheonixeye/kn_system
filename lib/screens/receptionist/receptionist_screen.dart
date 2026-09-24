@@ -6,6 +6,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/patient.dart';
 import '../../providers/clinic_provider.dart';
 import '../../widgets/active_queue_view.dart';
+import '../../widgets/consultant_case_report_dialog.dart';
 import '../../widgets/patient_operations_dialog.dart';
 import '../../widgets/patient_visits_dialog.dart';
 import '../../widgets/stat_card.dart';
@@ -86,6 +87,7 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final provider = context.read<ClinicProvider>();
+    final currentUserId = provider.currentUserId;
 
     try {
       final patient = await provider.registerPatient(
@@ -98,6 +100,7 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
         nationalId: _nationalIdController.text.trim().isNotEmpty
             ? _nationalIdController.text.trim()
             : null,
+        addedBy: currentUserId,
       );
 
       if (_autoCheckIn) {
@@ -106,6 +109,7 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
           chiefComplaint: _complaintController.text.trim().isNotEmpty
               ? _complaintController.text.trim()
               : null,
+          addedBy: currentUserId,
         );
       }
 
@@ -1050,6 +1054,23 @@ class _ReceptionistScreenState extends State<ReceptionistScreen> {
                   patientName: patient.name,
                 ),
               ),
+              if (provider.currentUserType ==
+                  AppConstants.userTypeConsultant) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: 'Consultant Case Report',
+                  icon: Icon(
+                    Icons.description_outlined,
+                    size: 18,
+                    color: AppTheme.purple,
+                  ),
+                  onPressed: () => ConsultantCaseReportDialog.show(
+                    context,
+                    patientId: patient.id,
+                    patientName: patient.name,
+                  ),
+                ),
+              ],
               const SizedBox(width: 4),
               IconButton(
                 tooltip: 'Edit Patient',

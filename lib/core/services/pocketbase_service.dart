@@ -351,10 +351,7 @@ class PocketBaseService {
 
       final records = await pb
           .collection(AppConstants.notificationsCollection)
-          .getFullList(
-            sort: '-created',
-            filter: filterString,
-          );
+          .getFullList(sort: '-created', filter: filterString);
 
       // Best-effort pagination for larger histories.
       final all = records.map((r) => AppNotification.fromRecord(r)).toList();
@@ -364,9 +361,7 @@ class PocketBaseService {
     }
   }
 
-  Future<AppNotification> createNotification(
-    Map<String, dynamic> data,
-  ) async {
+  Future<AppNotification> createNotification(Map<String, dynamic> data) async {
     try {
       final record = await pb
           .collection(AppConstants.notificationsCollection)

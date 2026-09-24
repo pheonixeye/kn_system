@@ -27,6 +27,7 @@ class Visit extends Equatable {
   final String? consultantNotes;
   final String? consultantName;
   final String? addedBy;
+  final String? visitType;
   final DateTime? created;
   final DateTime? updated;
 
@@ -53,6 +54,7 @@ class Visit extends Equatable {
     this.consultantNotes,
     this.consultantName,
     this.addedBy,
+    this.visitType,
     this.created,
     this.updated,
   });
@@ -82,8 +84,9 @@ class Visit extends Equatable {
     }
 
     final rawImages = record.getListValue<String>('images');
-    final rawPrescriptionImages =
-        record.getListValue<String>('prescription_images');
+    final rawPrescriptionImages = record.getListValue<String>(
+      'prescription_images',
+    );
 
     return Visit(
       id: record.id,
@@ -112,6 +115,7 @@ class Visit extends Equatable {
       consultantNotes: record.getStringValue('consultant_notes'),
       consultantName: record.getStringValue('consultant_name'),
       addedBy: record.getStringValue('added_by'),
+      visitType: record.getStringValue('visit_type'),
       created: DateTime.tryParse(record.getStringValue('created')),
       updated: DateTime.tryParse(record.getStringValue('updated')),
     );
@@ -142,6 +146,7 @@ class Visit extends Equatable {
       if (consultantNotes != null) 'consultant_notes': consultantNotes,
       if (consultantName != null) 'consultant_name': consultantName,
       if (addedBy != null) 'added_by': addedBy,
+      if (visitType != null) 'visit_type': visitType,
     };
   }
 
@@ -168,6 +173,7 @@ class Visit extends Equatable {
     String? consultantNotes,
     String? consultantName,
     String? addedBy,
+    String? visitType,
     DateTime? created,
     DateTime? updated,
   }) {
@@ -196,6 +202,7 @@ class Visit extends Equatable {
       consultantNotes: consultantNotes ?? this.consultantNotes,
       consultantName: consultantName ?? this.consultantName,
       addedBy: addedBy ?? this.addedBy,
+      visitType: visitType ?? this.visitType,
       created: created ?? this.created,
       updated: updated ?? this.updated,
     );
@@ -225,6 +232,7 @@ class Visit extends Equatable {
     consultantNotes,
     consultantName,
     addedBy,
+    visitType,
     created,
     updated,
   ];

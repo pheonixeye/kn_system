@@ -66,4 +66,47 @@ class AppConstants {
         return 'Pending';
     }
   }
+
+  // Visit Types
+  static const String notSpecified = '';
+  static const String consultation = 'consultation';
+  static const String consultationHasPreopImages =
+      'consultation_has_preop_images';
+  static const String followup = 'followup';
+  static const String followupHasFuImages = 'followup_has_fu_images';
+  static const String prp = 'prp';
+  static const String prpHasFuImages = 'prp_has_fu_images';
+  static const String finalResult = 'final_result';
+
+  static const List<String> visitTypeValues = [
+    notSpecified,
+    consultation,
+    consultationHasPreopImages,
+    followup,
+    followupHasFuImages,
+    prp,
+    prpHasFuImages,
+    finalResult,
+  ];
+
+  static String formatVisitType(String? type) {
+    switch (type) {
+      case consultation:
+        return 'Consultation';
+      case consultationHasPreopImages:
+        return 'Consultation with (PRE-OP) Images';
+      case followup:
+        return 'Followup';
+      case followupHasFuImages:
+        return 'Followup with (FU) Images';
+      case prp:
+        return 'PRP';
+      case prpHasFuImages:
+        return 'PRP with (FU) Images';
+      case finalResult:
+        return 'Final Result';
+      default:
+        return 'Not Specified';
+    }
+  }
 }

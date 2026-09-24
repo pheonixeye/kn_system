@@ -391,10 +391,8 @@ class ClinicProvider extends ChangeNotifier {
     String? dob,
     String? gender,
     String? nationalId,
-    String? address,
-    String? emergencyContact,
-    String? occupation,
     String? notes,
+    String? addedBy,
   }) async {
     _isLoading = true;
     _errorMessage = null;
@@ -408,12 +406,8 @@ class ClinicProvider extends ChangeNotifier {
         if (gender != null && gender.isNotEmpty) 'gender': gender.trim(),
         if (nationalId != null && nationalId.isNotEmpty)
           'national_id': nationalId.trim(),
-        if (address != null && address.isNotEmpty) 'address': address.trim(),
-        if (emergencyContact != null && emergencyContact.isNotEmpty)
-          'emergency_contact': emergencyContact.trim(),
-        if (occupation != null && occupation.isNotEmpty)
-          'occupation': occupation.trim(),
         if (notes != null && notes.isNotEmpty) 'notes': notes.trim(),
+        if (addedBy != null && addedBy.isNotEmpty) 'added_by': addedBy.trim(),
       });
 
       _patients.insert(0, patient);
@@ -436,9 +430,6 @@ class ClinicProvider extends ChangeNotifier {
     String? dob,
     String? gender,
     String? nationalId,
-    String? address,
-    String? emergencyContact,
-    String? occupation,
     String? notes,
     Map<String, dynamic>? data,
   }) async {
@@ -453,10 +444,6 @@ class ClinicProvider extends ChangeNotifier {
         if (dob != null) 'dob': dob.trim(),
         if (gender != null) 'gender': gender.trim(),
         if (nationalId != null) 'national_id': nationalId.trim(),
-        if (address != null) 'address': address.trim(),
-        if (emergencyContact != null)
-          'emergency_contact': emergencyContact.trim(),
-        if (occupation != null) 'occupation': occupation.trim(),
         if (notes != null) 'notes': notes.trim(),
         if (data != null) ...data,
       };
@@ -483,6 +470,7 @@ class ClinicProvider extends ChangeNotifier {
   Future<Visit> checkInPatient({
     required Patient patient,
     String? chiefComplaint,
+    String? addedBy,
   }) async {
     _isLoading = true;
     _errorMessage = null;
@@ -503,6 +491,7 @@ class ClinicProvider extends ChangeNotifier {
           'status': AppConstants.statusWaitingResident,
           if (chiefComplaint != null && chiefComplaint.trim().isNotEmpty)
             'chief_complaint': chiefComplaint.trim(),
+          'added_by': ?addedBy,
         },
       );
 
@@ -826,6 +815,7 @@ class ClinicProvider extends ChangeNotifier {
     String? prescription,
     String? notes,
     String? consultantName,
+    String? visitType,
     bool markCompleted = false,
   }) async {
     _isLoading = true;
@@ -845,6 +835,8 @@ class ClinicProvider extends ChangeNotifier {
         if (notes != null) 'consultant_notes': notes.trim(),
         if (consultantName != null && consultantName.isNotEmpty)
           'consultant_name': consultantName.trim(),
+        if (visitType != null && visitType.isNotEmpty)
+          'visit_type': visitType.trim(),
       };
 
       final updated = await _pbService.updateVisit(id: visit.id, body: body);
@@ -935,6 +927,7 @@ class ClinicProvider extends ChangeNotifier {
     String? prescription,
     String? notes,
     String? consultantName,
+    String? visitType,
   }) async {
     _isLoading = true;
     _errorMessage = null;
@@ -950,6 +943,8 @@ class ClinicProvider extends ChangeNotifier {
         if (notes != null) 'consultant_notes': notes.trim(),
         if (consultantName != null && consultantName.isNotEmpty)
           'consultant_name': consultantName.trim(),
+        if (visitType != null && visitType.isNotEmpty)
+          'visit_type': visitType.trim(),
       };
 
       final updated = await _pbService.updateVisit(id: visit.id, body: body);

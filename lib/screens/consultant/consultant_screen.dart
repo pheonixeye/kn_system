@@ -35,6 +35,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
   bool _showOperationsCalendar = false;
   List<StagedImageFile> _stagedPrescriptionFiles = [];
   bool _isUploadingPrescription = false;
+  String _selectedVisitType = AppConstants.notSpecified;
 
   @override
   void dispose() {
@@ -52,6 +53,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
     _planController.text = visit.consultantPlan ?? '';
     _prescriptionController.text = visit.consultantPrescription ?? '';
     _notesController.text = visit.consultantNotes ?? '';
+    _selectedVisitType = visit.visitType ?? AppConstants.notSpecified;
     if (visit.consultantName != null && visit.consultantName!.isNotEmpty) {
       _consultantNameController.text = visit.consultantName!;
     }
@@ -71,6 +73,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
         prescription: _prescriptionController.text,
         notes: _notesController.text,
         consultantName: consultantName,
+        visitType: _selectedVisitType,
         markCompleted: markCompleted,
       );
 
@@ -232,6 +235,7 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
           prescription: _prescriptionController.text,
           notes: _notesController.text,
           consultantName: _currentOperatorName(),
+          visitType: _selectedVisitType,
         );
 
         if (mounted) {
@@ -2392,6 +2396,47 @@ class _ConsultantScreenState extends State<ConsultantScreen> {
             ],
           ),
           const SizedBox(height: 16),
+
+          // Visit Type Selector
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Visit Type',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedVisitType,
+                hint: const Text('Select visit type'),
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.category_outlined, size: 18),
+                ),
+                items: [
+                  // const DropdownMenuItem<String>(
+                  //   value: null,
+                  //   child: Text('Not specified'),
+                  // ),
+                  ...AppConstants.visitTypeValues.map((type) {
+                    return DropdownMenuItem<String>(
+                      value: type,
+                      child: Text(
+                        AppConstants.formatVisitType(type),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _selectedVisitType = value);
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
 
           // Diagnosis
           const Text(
