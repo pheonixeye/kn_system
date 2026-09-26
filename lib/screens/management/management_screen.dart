@@ -6,6 +6,7 @@ import '../../core/services/pdf_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/operation.dart';
 import '../../models/patient.dart';
+import '../../models/post_operative_medical_report.dart';
 import '../../models/visit.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/clinic_provider.dart';
@@ -987,6 +988,17 @@ class _ManagementScreenState extends State<ManagementScreen> {
     );
   }
 
+  // Tooltip / eligibility: post-operative medical report may only be printed
+  // once the operation date has arrived or passed (never for the future).
+  bool _canPrintPostOperativeReport(Operation op) {
+    final dt = op.dateTime;
+    if (dt == null) return false;
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final opDate = DateTime(dt.year, dt.month, dt.day);
+    return !opDate.isAfter(todayDate);
+  }
+
   Widget _buildSelectedDaySchedule(List<Operation> dayOps) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1136,6 +1148,49 @@ class _ManagementScreenState extends State<ManagementScreen> {
                                   }
                                 }
                               },
+                            ),
+                            IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: _canPrintPostOperativeReport(op)
+                                  ? 'Print Post-Operative Medical Report'
+                                  : 'Post-Operative report available after the operation date',
+                              icon: Icon(
+                                Icons.assignment_outlined,
+                                size: 16,
+                                color: _canPrintPostOperativeReport(op)
+                                    ? AppTheme.success
+                                    : AppTheme.slate400,
+                              ),
+                              onPressed: _canPrintPostOperativeReport(op)
+                                  ? () async {
+                                      try {
+                                        await PdfService.printPostOperativeMedicalReport(
+                                          PostOperativeMedicalReport(
+                                            patientName:
+                                                op.patient?.name ??
+                                                'Unknown Patient',
+                                            operativeDate:
+                                                op.dateTime ?? DateTime.now(),
+                                            nationalId: op.patient?.nationalId,
+                                          ),
+                                        );
+                                      } catch (e) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              backgroundColor: AppTheme.danger,
+                                              content: Text(
+                                                'Error printing medical report: $e',
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    }
+                                  : null,
                             ),
                             IconButton(
                               padding: EdgeInsets.zero,

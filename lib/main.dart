@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'core/constants/app_constants.dart';
 import 'core/theme/app_theme.dart';
@@ -17,10 +18,9 @@ Future<void> main() async {
   await themeProvider.init();
   final authProvider = AuthProvider();
   await authProvider.init();
-  runApp(MyApp(
-    themeProvider: themeProvider,
-    authProvider: authProvider,
-  ));
+  await initializeDateFormatting('en');
+  await initializeDateFormatting('ar');
+  runApp(MyApp(themeProvider: themeProvider, authProvider: authProvider));
 }
 
 class MyApp extends StatelessWidget {

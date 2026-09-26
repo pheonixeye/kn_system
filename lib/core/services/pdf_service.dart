@@ -8,6 +8,7 @@ import '../constants/app_constants.dart';
 import '../utils/text_utils.dart';
 import '../../models/consultant_case_report.dart';
 import '../../models/operation.dart';
+import '../../models/post_operative_medical_report.dart';
 import '../../models/visit.dart';
 
 class PdfService {
@@ -913,6 +914,125 @@ class PdfService {
     );
   }
 
+  // ========================= Post-Operative Medical Report PDF =========================
+  /// Patient-facing Arabic medical report printed from the Management tab once
+  /// the operation date has passed. Always laid out in RTL.
+  static Future<Uint8List> generatePostOperativeMedicalPdf(
+    PostOperativeMedicalReport report,
+  ) async {
+    final pdf = pw.Document(theme: await _cairoTheme());
+    final headerImg = await _loadHeader();
+    final footerImg = await _loadFooter();
+
+    final primaryColor = PdfColor.fromInt(0xFF0E7490);
+
+    pw.Text arabicText(
+      String text, {
+      double fontSize = 11,
+      pw.FontWeight? weight,
+      PdfColor? color,
+      pw.FontStyle? fontStyle,
+    }) {
+      return pw.Text(
+        text,
+        textDirection: pw.TextDirection.rtl,
+        textAlign: pw.TextAlign.center,
+        style: pw.TextStyle(
+          fontSize: fontSize,
+          fontWeight: weight,
+          color: color,
+          fontStyle: fontStyle,
+        ),
+      );
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        header: (pw.Context context) {
+          return _brandHeader(headerImg, context);
+        },
+        footer: (pw.Context context) {
+          return _brandFooter(footerImg, context);
+        },
+        build: (pw.Context context) {
+          return [
+            pw.SizedBox(height: 28),
+            // 1. Report header - centered at the top of the page
+            pw.Center(
+              child: arabicText(
+                report.header,
+                fontSize: 18,
+                weight: pw.FontWeight.bold,
+                color: primaryColor,
+              ),
+            ),
+            pw.SizedBox(height: 28),
+            // 2. Body - centered on the page, RTL
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 18,
+              ),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromInt(0xFFF8FAFC),
+                borderRadius: pw.BorderRadius.circular(10),
+                border: pw.Border.all(color: PdfColor.fromInt(0xFFE2E8F0)),
+              ),
+              child: arabicText(
+                report.medicalReportBodyPostOperative,
+                fontSize: 12,
+                weight: pw.FontWeight.normal,
+              ),
+            ),
+            pw.SizedBox(height: 48),
+            // 3. Footers - all left-aligned below the body
+            pw.Align(
+              alignment: pw.Alignment.centerLeft,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  arabicText(
+                    report.firstLeftFooter,
+                    fontSize: 12,
+                    color: PdfColor.fromInt(0xFF334155),
+                  ),
+                  pw.SizedBox(height: 18),
+                  arabicText(
+                    report.secondLeftFooter,
+                    fontSize: 16,
+                    weight: pw.FontWeight.bold,
+                    color: PdfColor.fromInt(0xFF0F172A),
+                  ),
+                  pw.SizedBox(height: 8),
+                  arabicText(
+                    report.thirdLeftFooter,
+                    fontSize: 9,
+                    fontStyle: pw.FontStyle.normal,
+                    color: PdfColors.grey600,
+                  ),
+                ],
+              ),
+            ),
+          ];
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  static Future<void> printPostOperativeMedicalReport(
+    PostOperativeMedicalReport report,
+  ) async {
+    final pdfBytes = await generatePostOperativeMedicalPdf(report);
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdfBytes,
+      name: 'Post_Operative_Medical_Report_${report.patientName}.pdf',
+    );
+  }
+
   static pw.Widget _buildSubHeader(String title, PdfColor color) {
     return pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 4),
@@ -1512,6 +1632,10 @@ class PdfService {
                   fontSize: 10.5,
                   fontWeight: pw.FontWeight.bold,
                 ),
+                textDirection: containsArabic(visit.consultantPrescription!)
+                    ? pw.TextDirection.rtl
+                    : pw.TextDirection.ltr,
+                textAlign: pw.TextAlign.left,
               ),
             ),
             pw.SizedBox(height: 14),
